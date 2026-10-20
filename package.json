@@ -1,0 +1,32 @@
+{
+  "name": "book-register-report",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "ระบบรายงานทะเบียนหนังสือ - ประมวลผลไฟล์ Excel ในเบราว์เซอร์ ไม่ส่งข้อมูลออกนอกเครื่อง",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "make-sample": "node scripts/make-sample.mjs",
+    "make-time-test": "node scripts/make-time-test.mjs",
+    "probe-dates": "node scripts/probe-dates.mjs",
+    "test": "node scripts/test.mjs"
+  },
+  "dependencies": {
+    "@fontsource/sarabun": "^5.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  },
+  "allowScripts": {
+    "esbuild@0.21.5": true
+  }
+}

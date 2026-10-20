@@ -1,0 +1,32 @@
+# dependencies
+node_modules/
+
+# production build output
+dist/
+dist-ssr/
+
+# test/compile scratch space
+node_modules/.test-tmp/
+
+# local env / editor
+.env
+.env.local
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# local-only exported data (ไม่ควร commit ข้อมูลทะเบียนหนังสือจริง)
+*.local.xlsx
+*.local.csv
+
+# ไฟล์ทดสอบวันที่/เวลาที่สร้างชั่วคราวระหว่างพัฒนา (สร้างใหม่ได้ด้วย npm run make-time-test)
+sample/ทดสอบ_วันที่และเวลา.xlsx
