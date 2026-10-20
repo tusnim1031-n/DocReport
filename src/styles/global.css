@@ -2205,6 +2205,7 @@ textarea {
   .dt-toolbar,
   .dt-footer,
   .step-switch,
+  .alert,
   .alert-close {
     display: none !important;
   }

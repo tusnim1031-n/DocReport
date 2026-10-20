@@ -6,6 +6,7 @@ type AlertProps = {
   title?: string;
   children: ReactNode;
   onClose?: () => void;
+  className?: string;
 };
 
 const ALERT_ICON = {
@@ -15,10 +16,10 @@ const ALERT_ICON = {
   error: IconAlert,
 } as const;
 
-export function Alert({ variant, title, children, onClose }: AlertProps) {
+export function Alert({ variant, title, children, onClose, className }: AlertProps) {
   const Icon = ALERT_ICON[variant];
   return (
-    <div className={`alert alert-${variant}`} role={variant === 'error' ? 'alert' : undefined}>
+    <div className={`alert alert-${variant} no-print ${className ?? ''}`.trim()} role={variant === 'error' ? 'alert' : undefined}>
       <span className="alert-icon" aria-hidden="true">
         <Icon size={18} />
       </span>
