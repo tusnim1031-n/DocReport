@@ -135,8 +135,11 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
         header.getBoundingClientRect().height + (Number.parseFloat(headerStyle.marginBottom) || 0);
       const tableHeadHeight = table.tHead ? table.tHead.getBoundingClientRect().height : 0;
       const footerHeight = footer ? footer.getBoundingClientRect().height : 0;
-      const trailingHeight = measureSignRef.current
-        ? measureSignRef.current.getBoundingClientRect().height
+      // ต้องรวม margin-top ของช่องลงนามด้วย (12 มม.) ไม่ใช่แค่ความสูงกล่อง
+      const signNode = measureSignRef.current;
+      const trailingHeight = signNode
+        ? signNode.getBoundingClientRect().height +
+          (Number.parseFloat(window.getComputedStyle(signNode).marginTop) || 0)
         : 0;
 
       const body = table.tBodies[0];

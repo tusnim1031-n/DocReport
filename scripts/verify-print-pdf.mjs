@@ -177,7 +177,11 @@ const metricsScript = `(() => {
       (parseFloat(getComputedStyle(header).marginBottom) || 0);
     const tableHeight = table.getBoundingClientRect().height;
     const footerHeight = Array.from(page.querySelectorAll('.report-footer-note')).reduce(
-      (sum, node) => sum + node.getBoundingClientRect().height,
+      (sum, node) => {
+        const style = getComputedStyle(node);
+        const margin = parseFloat(style.marginTop) || 0;
+        return sum + node.getBoundingClientRect().height + margin;
+      },
       0,
     );
     const cells = Array.from(table.querySelectorAll('tbody tr')).map((row) => row.getBoundingClientRect().height);
@@ -323,6 +327,19 @@ async function main() {
 
       await importFile(session, filePath);
 
+      if (process.env.SIGNATURE) {
+        await waitFor(
+          session,
+          `(() => {
+            const box = document.querySelector('#include-signature');
+            if (!box) return false;
+            if (!box.checked) box.click();
+            return box.checked;
+          })()`,
+        );
+        await sleep(700);
+      }
+
       const metrics = await evaluate(session, metricsScript);
 
       // --- ตรวจเงื่อนไขการพิมพ์ภายใต้สื่อ "print" จริง ---
@@ -371,6 +388,9 @@ async function main() {
                 .map((node) => node.innerText)
                 .join(' '),
             ),
+            signaturePages: pages
+              .map((page, index) => (page.innerText.includes('ลงชื่อ') ? index : -1))
+              .filter((index) => index >= 0),
           };
         })()`,
       );
@@ -380,6 +400,10 @@ async function main() {
       const metaOk = printChecks.metaPerPage.every((text, index) =>
         text.includes(`หน้า ${index + 1} จาก ${printChecks.pages}`),
       );
+      const signatureOk = process.env.SIGNATURE
+        ? printChecks.signaturePages.length === 1 &&
+          printChecks.signaturePages[0] === printChecks.pages - 1
+        : printChecks.signaturePages.length === 0;
       const printOk =
         printChecks.visibleAlerts === 0 &&
         !printChecks.measureVisible &&
@@ -389,6 +413,7 @@ async function main() {
         printChecks.headersPerPage === printChecks.pages &&
         printChecks.tableHeadsPerPage === printChecks.pages &&
         metaOk &&
+        signatureOk &&
         printChecks.emptyNoteCells === printChecks.totalCells &&
         printChecks.badDates.length === 0 &&
         printChecks.badYearCount === 0;
