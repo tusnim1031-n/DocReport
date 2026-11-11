@@ -1,0 +1,494 @@
+/**
+ * ตรวจสอบการพิมพ์รายงานด้วย Chrome headless (CDP ตรง ๆ ไม่ต้องติดตั้งไลบรารีเพิ่ม)
+ * - นำเข้าไฟล์ Excel แต่ละขนาดผ่าน <input type=file> (DOM.setFileInputFiles)
+ * - เปิดหน้ารายงาน แล้ววัดความสูงจริงของทุกหน้าเทียบพื้นที่พิมพ์ A4
+ * - สั่ง Page.printToPDF แล้วนับจำนวนหน้าของ PDF จริง
+ *
+ * ใช้งาน: node scripts/verify-print-pdf.mjs [baseUrl]
+ * ต้องเปิดเซิร์ฟเวอร์ไว้ก่อน เช่น npx vite preview --port 4199
+ */
+import { spawn } from 'node:child_process';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { resolve, dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { inflateSync } from 'node:zlib';
+import * as XLSX from 'xlsx';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const root = resolve(here, '..');
+const baseUrl = process.argv[2] ?? 'http://localhost:4199';
+
+const CHROME_CANDIDATES = [
+  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+  'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+  'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+  'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+];
+const chromePath = CHROME_CANDIDATES.find((candidate) => existsSync(candidate));
+if (!chromePath) {
+  console.error('ไม่พบ Chrome/Edge สำหรับทดสอบ');
+  process.exit(1);
+}
+
+const SIZES = (process.env.SIZES ?? '1,10,20,36,68,100')
+  .split(',')
+  .map((value) => Number(value.trim()))
+  .filter((value) => Number.isFinite(value) && value >= 0);
+const MM_PX = 96 / 25.4;
+const CONTENT_LIMIT_PX = (297 - 10 - 10 - 4) * MM_PX; // ลบระยะขอบ + safety 4 มม.
+
+const SUBJECTS = [
+  'ขอเชิญประชุม',
+  'ขอเชิญประชุมคณะกรรมการพิจารณางบประมาณประจำปี และขอความอนุเคราะห์ส่งผู้แทนเข้าร่วมประชุม',
+  'ขอความอนุเคราะห์ข้อมูลสถิติขยะมูลฝอยเพื่อจัดทำรายงานประจำปี และขอความร่วมมือตอบแบบสอบถามความพึงพอใจการให้บริการภาครัฐ พร้อมทั้งแจ้งกำหนดการประชุมชี้แจงแนวทางการจัดทำคำขอตั้งงบประมาณรายจ่ายประจำปีงบประมาณ พ.ศ. 2569',
+];
+const SUBJECTS_LONG = [
+  ...SUBJECTS,
+  `${SUBJECTS[2]} ${SUBJECTS[2]}`,
+];
+
+function makeWorkbook(count) {
+  const rows = [['เลขรับ', 'ที่', 'ลงวันที่', 'จาก', 'เรื่อง', 'วันที่รับ', 'หมายเหตุ']];
+  for (let i = 0; i < count; i += 1) {
+    const day = String((i % 28) + 1).padStart(2, '0');
+    const month = String((i % 12) + 1).padStart(2, '0');
+    rows.push([
+      String(1001 + i),
+      `ศธ ${101 + (i % 90)}/2569`,
+      i % 4 === 0 ? `${day}/${month}/2026` : `${day}/${month}/2569`,
+      i % 9 === 0
+        ? 'สำนักงานปลัดกระทรวงการอุดมศึกษา วิทยาศาสตร์ วิจัยและนวัตกรรม กลุ่มภารกิจด้านบริหารจัดการ'
+        : 'กรมการปกครอง',
+      SUBJECTS_LONG[i % SUBJECTS_LONG.length],
+      `${day}/${month}/2569`,
+      '',
+    ]);
+  }
+  const sheet = XLSX.utils.aoa_to_sheet(rows);
+  const book = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(book, sheet, 'ทะเบียน');
+  return XLSX.write(book, { type: 'buffer', bookType: 'xlsx' });
+}
+
+/** นับหน้าของ PDF โดยอ่าน /Type /Page (รองรับ object stream ที่บีบอัด) */
+function countPdfPages(buffer) {
+  const text = buffer.toString('latin1');
+  const countIn = (value) => (value.match(/\/Type\s*\/Page[^s]/g) || []).length;
+
+  const direct = countIn(text);
+  if (direct > 0) return direct;
+
+  let counted = 0;
+  const marker = /stream\r?\n/g;
+  let match;
+  while ((match = marker.exec(text)) !== null) {
+    const start = match.index + match[0].length;
+    const end = text.indexOf('endstream', start);
+    if (end < 0) continue;
+    try {
+      counted += countIn(inflateSync(buffer.subarray(start, end)).toString('latin1'));
+    } catch {
+      // ข้ามสตรีมที่บีบอัดด้วยวิธีอื่น
+    }
+  }
+  return counted;
+}
+
+const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+
+async function openCdp(port) {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: 'PUT' });
+      if (response.ok) return await response.json();
+    } catch {
+      // ยังไม่พร้อม
+    }
+    await sleep(250);
+  }
+  throw new Error('เชื่อมต่อ Chrome DevTools ไม่ได้');
+}
+
+function createSession(wsUrl) {
+  const socket = new WebSocket(wsUrl);
+  const pending = new Map();
+  let nextId = 1;
+
+  const ready = new Promise((done, fail) => {
+    socket.addEventListener('open', () => done());
+    socket.addEventListener('error', () => fail(new Error('WebSocket error')));
+  });
+
+  socket.addEventListener('message', (event) => {
+    const message = JSON.parse(event.data);
+    if (message.id && pending.has(message.id)) {
+      const { resolvePromise, rejectPromise } = pending.get(message.id);
+      pending.delete(message.id);
+      if (message.error) rejectPromise(new Error(`${message.error.message} (${message.error.code})`));
+      else resolvePromise(message.result);
+    }
+  });
+
+  const send = async (method, params = {}) => {
+    await ready;
+    const id = nextId++;
+    const promise = new Promise((resolvePromise, rejectPromise) => {
+      pending.set(id, { resolvePromise, rejectPromise });
+    });
+    socket.send(JSON.stringify({ id, method, params }));
+    return promise;
+  };
+
+  return { send, close: () => socket.close(), ready };
+}
+
+async function evaluate(session, expression) {
+  const result = await session.send('Runtime.evaluate', {
+    expression,
+    awaitPromise: true,
+    returnByValue: true,
+  });
+  if (result.exceptionDetails) {
+    throw new Error(result.exceptionDetails.text ?? 'evaluate error');
+  }
+  return result.result.value;
+}
+
+async function waitFor(session, expression, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const value = await evaluate(session, expression);
+    if (value) return value;
+    await sleep(150);
+  }
+  throw new Error(`หมดเวลา: ${expression}`);
+}
+
+const metricsScript = `(() => {
+  const MM = 96 / 25.4;
+  const limit = (297 - 10 - 10 - 4) * MM;
+  const pages = Array.from(document.querySelectorAll('.a4-page'));
+  const pageInfo = pages.map((page) => {
+    const header = page.querySelector('.report-header');
+    const table = page.querySelector('.report-table');
+    const headerHeight =
+      header.getBoundingClientRect().height +
+      (parseFloat(getComputedStyle(header).marginBottom) || 0);
+    const tableHeight = table.getBoundingClientRect().height;
+    const footerHeight = Array.from(page.querySelectorAll('.report-footer-note')).reduce(
+      (sum, node) => sum + node.getBoundingClientRect().height,
+      0,
+    );
+    const cells = Array.from(table.querySelectorAll('tbody tr')).map((row) => row.getBoundingClientRect().height);
+    return {
+      rows: table.querySelectorAll('tbody tr').length,
+      headerHeight,
+      tableHeight,
+      footerHeight,
+      content: headerHeight + tableHeight + footerHeight,
+      minRow: cells.length ? Math.min(...cells) : 0,
+      maxRow: cells.length ? Math.max(...cells) : 0,
+      filledWidth: table.getBoundingClientRect().width,
+    };
+  });
+  const table = document.querySelector('.a4-page .report-table');
+  const contentWidth = table ? table.getBoundingClientRect().width : 0;
+  return {
+    pageCount: pages.length,
+    pageInfo,
+    limit,
+    contentWidth,
+    expectedContentWidth: 186 * MM,
+    measureHidden: (() => {
+      const node = document.querySelector('.report-measure');
+      if (!node) return 'missing';
+      const style = getComputedStyle(node);
+      return style.visibility === 'hidden' || style.display === 'none' ? 'hidden' : 'visible';
+    })(),
+    meta: pages[0] ? pages[0].querySelector('.report-meta').innerText : '',
+    url: location.href,
+  };
+})()`;
+
+async function importFile(session, filePath) {
+  await waitFor(session, `!!document.querySelector('input[type=file]')`);
+
+  const { root: documentNode } = await session.send('DOM.getDocument', { depth: -1 });
+  const { nodeId } = await session.send('DOM.querySelector', {
+    nodeId: documentNode.nodeId,
+    selector: 'input[type=file]',
+  });
+  if (!nodeId) throw new Error('ไม่พบ input ไฟล์');
+
+  await session.send('DOM.setFileInputFiles', { nodeId, files: [filePath] });
+
+  // ขั้นตอนจับคู่คอลัมน์
+  await waitFor(
+    session,
+    `(() => {
+      const button = Array.from(document.querySelectorAll('button')).find((node) =>
+        node.textContent.includes('เดาจับคู่ให้อัตโนมัติ'),
+      );
+      if (!button || button.disabled) return false;
+      button.click();
+      return true;
+    })()`,
+  );
+
+  await waitFor(
+    session,
+    `(() => {
+      const button = Array.from(document.querySelectorAll('button')).find((node) =>
+        /^นำเข้าข้อมูล/.test(node.textContent.trim()),
+      );
+      if (!button || button.disabled) return false;
+      button.click();
+      return true;
+    })()`,
+  );
+
+  await waitFor(
+    session,
+    `(() => {
+      const button = Array.from(document.querySelectorAll('button')).find((node) =>
+        node.textContent.includes('ยืนยันการนำเข้าข้อมูล') || node.textContent.includes('ยืนยัน'),
+      );
+      const dialog = document.querySelector('.modal');
+      if (!dialog) return false;
+      const confirm = Array.from(dialog.querySelectorAll('button')).find((node) =>
+        /ยืนยัน/.test(node.textContent),
+      );
+      if (!confirm) return false;
+      confirm.click();
+      return true;
+    })()`,
+  );
+
+  await waitFor(
+    session,
+    `(() => {
+      const nav = Array.from(document.querySelectorAll('button.nav-item')).find((node) =>
+        node.textContent.includes('สร้างรายงาน'),
+      );
+      if (!nav) return false;
+      nav.click();
+      return true;
+    })()`,
+  );
+
+  await waitFor(session, `document.querySelectorAll('.a4-page').length > 0`, 20000);
+  // รอให้การวัด/แบ่งหน้าและฟอนต์เสร็จ (วัดซ้ำอย่างน้อย 2 เฟรม)
+  await sleep(600);
+}
+
+async function main() {
+  const userDataDir = mkdtempSync(join(tmpdir(), 'docreport-cdp-'));
+  const tempRoot = mkdtempSync(join(tmpdir(), 'docreport-pdf-'));
+  const port = 9333 + Math.floor(Math.random() * 200);
+  const chrome = spawn(
+    chromePath,
+    [
+      '--headless=new',
+      `--remote-debugging-port=${port}`,
+      `--user-data-dir=${userDataDir}`,
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-gpu',
+      '--disable-extensions',
+      '--hide-scrollbars',
+      'about:blank',
+    ],
+    { stdio: 'ignore' },
+  );
+
+  let failed = 0;
+  const results = [];
+
+  try {
+    const target = await openCdp(port);
+    const session = createSession(target.webSocketDebuggerUrl);
+    await session.ready;
+    await session.send('Page.enable');
+    await session.send('Runtime.enable');
+
+    for (const size of SIZES) {
+      const filePath = join(tempRoot, `pagination-${size}.xlsx`);
+      writeFileSync(filePath, makeWorkbook(size));
+
+      await session.send('Page.navigate', { url: baseUrl });
+      await sleep(900);
+      await waitFor(session, `document.readyState === 'complete'`);
+      await sleep(400);
+
+      await importFile(session, filePath);
+
+      const metrics = await evaluate(session, metricsScript);
+
+      // --- ตรวจเงื่อนไขการพิมพ์ภายใต้สื่อ "print" จริง ---
+      await session.send('Emulation.setEmulatedMedia', { media: 'print' });
+      await sleep(250);
+      const printChecks = await evaluate(
+        session,
+        `(() => {
+          const pages = Array.from(document.querySelectorAll('.a4-page'));
+          const visible = (node) => {
+            if (!node) return false;
+            const style = getComputedStyle(node);
+            return style.display !== 'none' && style.visibility !== 'hidden';
+          };
+          const dateCells = pages.flatMap((page) =>
+            Array.from(page.querySelectorAll('tbody tr')).map((row) => {
+              const cells = Array.from(row.children).map((cell) => cell.textContent.trim());
+              return { documentDate: cells[3], receivedDate: cells[6], note: cells[7] };
+            }),
+          );
+          const badDates = dateCells.filter(
+            (cell) =>
+              (cell.documentDate && !/^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(cell.documentDate)) ||
+              (cell.receivedDate && !/^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(cell.receivedDate)),
+          );
+          const years = dateCells
+            .flatMap((cell) => [cell.documentDate, cell.receivedDate])
+            .filter(Boolean)
+            .map((value) => Number(value.slice(-4)));
+          return {
+            alertCount: document.querySelectorAll('.alert').length,
+            visibleAlerts: Array.from(document.querySelectorAll('.alert')).filter(visible).length,
+            measureVisible: visible(document.querySelector('.report-measure')),
+            bodyText: pages.map((page) => page.innerText).join('\\n'),
+            pages: pages.length,
+            headersPerPage: pages.filter((page) => page.querySelector('.report-header')).length,
+            tableHeadsPerPage: pages.filter((page) => page.querySelector('thead th')).length,
+            metaPerPage: pages.map((page) => page.querySelector('.report-meta').innerText.replace(/\\s+/g, ' ')),
+            emptyNoteCells: dateCells.filter((cell) => cell.note === '').length,
+            totalCells: dateCells.length,
+            badDates: badDates.slice(0, 3),
+            badYearCount: years.filter((year) => year < 2400 || year > 2700).length,
+            summaryVisible: /แทนที่ข้อมูลสำเร็จ|ก่อนนำเข้า|หลังนำเข้า/.test(
+              Array.from(document.querySelectorAll('.alert'))
+                .filter(visible)
+                .map((node) => node.innerText)
+                .join(' '),
+            ),
+          };
+        })()`,
+      );
+      await session.send('Emulation.setEmulatedMedia', { media: '' });
+      await sleep(150);
+
+      const metaOk = printChecks.metaPerPage.every((text, index) =>
+        text.includes(`หน้า ${index + 1} จาก ${printChecks.pages}`),
+      );
+      const printOk =
+        printChecks.visibleAlerts === 0 &&
+        !printChecks.measureVisible &&
+        !printChecks.summaryVisible &&
+        !/⚠/.test(printChecks.bodyText) &&
+        !/\\d{1,2}:\\d{2}/.test(printChecks.bodyText) &&
+        printChecks.headersPerPage === printChecks.pages &&
+        printChecks.tableHeadsPerPage === printChecks.pages &&
+        metaOk &&
+        printChecks.emptyNoteCells === printChecks.totalCells &&
+        printChecks.badDates.length === 0 &&
+        printChecks.badYearCount === 0;
+      if (!printOk) failed += 1;
+
+      const overflowPages = metrics.pageInfo.filter((page) => page.content > metrics.limit + 0.5);
+      const emptyPages = metrics.pageInfo.filter((page) => page.rows === 0);
+      const totalRows = metrics.pageInfo.reduce((sum, page) => sum + page.rows, 0);
+      const underFilled = metrics.pageInfo
+        .slice(0, -1)
+        .filter((page) => page.content < metrics.limit * 0.6);
+
+      const pdf = await session.send('Page.printToPDF', {
+        printBackground: true,
+        preferCSSPageSize: true,
+        marginTop: 0,
+        marginBottom: 0,
+        marginLeft: 0,
+        marginRight: 0,
+      });
+      const pdfBuffer = Buffer.from(pdf.data, 'base64');
+      const pdfPath = join(tempRoot, `report-${size}.pdf`);
+      writeFileSync(pdfPath, pdfBuffer);
+      const pdfPages = countPdfPages(pdfBuffer);
+
+      const rowCounts = metrics.pageInfo.map((page) => page.rows);
+      const ok =
+        totalRows === size &&
+        overflowPages.length === 0 &&
+        emptyPages.length === 0 &&
+        pdfPages === metrics.pageCount &&
+        printOk;
+
+      if (!ok) failed += 1;
+
+      results.push({
+        size,
+        pages: metrics.pageCount,
+        pdfPages,
+        totalRows,
+        rowCounts,
+        overflow: overflowPages.length,
+        emptyPages: emptyPages.length,
+        underFilled: underFilled.length,
+        maxContentMm: (Math.max(...metrics.pageInfo.map((page) => page.content)) / MM_PX).toFixed(1),
+        limitMm: (metrics.limit / MM_PX).toFixed(1),
+        printOk,
+        printChecks,
+        ok,
+        pdfPath,
+      });
+
+      console.log(
+        `n=${String(size).padStart(3)} | UI ${String(metrics.pageCount).padStart(2)} หน้า | PDF ${String(
+          pdfPages,
+        ).padStart(2)} หน้า | แถว ${String(totalRows).padStart(3)}/${String(size).padEnd(3)} | สูงสุด ${(
+          Math.max(...metrics.pageInfo.map((page) => page.content)) / MM_PX
+        ).toFixed(1)}/${(metrics.limit / MM_PX).toFixed(0)} มม. | ล้น ${overflowPages.length} | หน้าว่าง ${
+          emptyPages.length
+        } | ${ok ? 'PASS' : 'FAIL'}`,
+      );
+      console.log(`        แถวต่อหน้า: ${rowCounts.join(', ')}`);
+      console.log(
+        `        ตรวจการพิมพ์: ซ่อน alert ${printChecks.visibleAlerts === 0 ? 'PASS' : 'FAIL'} | ซ่อนตัววัด ${
+          printChecks.measureVisible ? 'FAIL' : 'PASS'
+        } | หัวตารางซ้ำ ${printChecks.tableHeadsPerPage}/${printChecks.pages} | เลขหน้า ${
+          metaOk ? 'PASS' : 'FAIL'
+        } | หมายเหตุว่าง ${printChecks.emptyNoteCells}/${printChecks.totalCells} | วันที่ ${
+          printChecks.badDates.length === 0 && printChecks.badYearCount === 0 ? 'PASS' : 'FAIL'
+        }`,
+      );
+    }
+
+    // ตรวจ CSS: ความกว้างตารางต้องเท่ากับ 186 มม. และตัววัดต้องถูกซ่อน
+    const lastMetrics = await evaluate(session, metricsScript);
+    const widthOk = Math.abs(lastMetrics.contentWidth - lastMetrics.expectedContentWidth) < 1.5;
+    const measuredHidden = lastMetrics.measureHidden !== 'visible';
+    if (!widthOk || !measuredHidden) failed += 1;
+    console.log(
+      `ความกว้างตาราง ${lastMetrics.contentWidth.toFixed(1)}px (คาดหวัง ${lastMetrics.expectedContentWidth.toFixed(
+        1,
+      )}px) → ${widthOk ? 'PASS' : 'FAIL'} | ตัววัดซ่อน: ${measuredHidden ? 'PASS' : 'FAIL'}`,
+    );
+    console.log(`ตัวอย่าง PDF: ${results[results.length - 1].pdfPath}`);
+
+    session.close();
+  } finally {
+    chrome.kill();
+    try {
+      rmSync(userDataDir, { recursive: true, force: true });
+    } catch {
+      // ไม่เป็นไร
+    }
+  }
+
+  console.log(failed === 0 ? '\nผลรวม: ผ่านทั้งหมด' : `\nผลรวม: ไม่ผ่าน ${failed} รายการ`);
+  process.exitCode = failed === 0 ? 0 : 1;
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

@@ -2023,9 +2023,25 @@ textarea {
   gap: var(--sp-5);
 }
 
+/*
+ * พื้นที่วัดความสูงจริงของรายงาน (ซ่อนจากสายตา แต่ยังวัดขนาดได้)
+ * ความกว้างต้องเท่ากับพื้นที่พิมพ์จริงของ A4: 210 − 12 − 12 = 186 มม.
+ * เพื่อให้ความสูงของแถวที่วัดได้ตรงกับตอนพิมพ์จริง
+ */
+.report-measure {
+  position: absolute;
+  top: 0;
+  left: -10000px;
+  width: 186mm;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: -1;
+}
+
 .a4-page {
   width: 210mm;
   min-height: 297mm;
+  /* ระยะขอบต้องตรงกับ @page ด้านล่าง (10 มม. บน/ล่าง, 12 มม. ซ้าย/ขวา) */
   padding: 10mm 12mm;
   background: var(--white);
   border: 1px solid var(--border);
@@ -2093,8 +2109,7 @@ textarea {
   border: 1px solid var(--gray-300);
   vertical-align: top;
   overflow-wrap: break-word;
-  word-break: break-word;
-  hyphens: auto;
+  word-break: normal;
   line-height: 1.4;
 }
 
@@ -2198,6 +2213,20 @@ textarea {
   print-color-adjust: exact;
   }
 
+  /*
+   * ต้นเหตุของ "หน้าว่างเกินมา 1 หน้า" เมื่อรายงานสั้นกว่าหนึ่งหน้า:
+   * html/body/#root ถูกกำหนด min-height: 100vh ไว้สำหรับหน้าจอ
+   * ในงานพิมพ์ 100vh = ความสูงหนึ่งหน้ากระดาษพอดี เมื่อเนื้อหาสั้นกว่า
+   * กล่องจึงถูกยืดเต็มหน้าและเศษจากการปัดเศษดันล้นไปหน้าถัดไป (หน้าว่าง)
+   * จึงต้องล้าง min-height/height ในโหมดพิมพ์
+   */
+  html,
+  body,
+  #root {
+    min-height: 0 !important;
+    height: auto !important;
+  }
+
   .no-print,
   .sidebar,
   .main-header,
@@ -2207,6 +2236,11 @@ textarea {
   .step-switch,
   .alert,
   .alert-close {
+    display: none !important;
+  }
+
+  /* พื้นที่วัดความสูงใช้เฉพาะบนจอ — ห้ามพิมพ์ออกมา */
+  .report-measure {
     display: none !important;
   }
 
@@ -2234,14 +2268,21 @@ textarea {
     display: block;
   }
 
-  /* ใช้พื้นที่กระดาษจริงจาก @page จึงไม่ต้องมีขอบ/เงาในหน้าพิมพ์ */
+  /*
+   * ใช้พื้นที่กระดาษจริงจาก @page (ระยะขอบ 10/12 มม.)
+   * แต่ละ .a4-page ถูกแบ่งเนื้อหามาแล้วให้สูงไม่เกินพื้นที่พิมพ์จริง
+   * จึงไม่เกิดการล้นไปหน้าใหม่ซ้ำหรือหน้าว่าง
+   */
   .a4-page {
     width: auto;
     min-height: 0;
+    max-height: none;
     padding: 0;
+    margin: 0;
     border: 0;
     border-radius: 0;
     box-shadow: none;
+    display: block;
     page-break-after: always;
     break-after: page;
   }
@@ -2257,6 +2298,8 @@ textarea {
 
   .report-table {
     table-layout: fixed;
+    width: 100%;
+    border-collapse: collapse;
   }
 
   .report-table thead {
@@ -2272,9 +2315,9 @@ textarea {
 
   .report-table tbody td {
     font-size: 9.5pt;
-    hyphens: auto;
   }
 
+  /* กันการตัดแถวกลางคัน (แต่ละแถวถูกวัดความสูงและจัดลงหน้าให้พอดีแล้ว) */
   .report-table tr {
     break-inside: avoid;
     page-break-inside: avoid;

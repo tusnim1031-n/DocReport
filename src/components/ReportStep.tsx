@@ -4,7 +4,7 @@
  * - แสดงเฉพาะวันที่ ไม่แสดงเวลา และไม่มีเครื่องหมายเตือน ⚠
  * - องค์ประกอบของเว็บไซต์ (Sidebar/ปุ่ม/Dashboard) ถูกซ่อนด้วย .no-print
  */
-import { useMemo, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Badge, EmptyState } from './ui';
 import {
   IconDownload,
@@ -15,6 +15,11 @@ import { formatDateRange, formatBEDate } from '../lib/dates';
 import { exportRowsToExcel } from '../lib/export';
 import { REPORT_COLUMNS, reportColumnValue } from '../lib/types';
 import type { RegisterRow } from '../lib/types';
+import {
+  computeRowCapacityPx,
+  paginateRowsByHeight,
+  REPORT_INDEX_WIDTH_MM,
+} from '../lib/reportLayout';
 import {
   applyFilters,
   computeStatistics,
@@ -30,10 +35,20 @@ type ReportStepProps = {
   onGoToUpload: () => void;
 };
 
-const ROWS_PER_PRINT_PAGE = 22;
+type MeasuredLayout = {
+  /** ลายนิ้วมือของชุดข้อมูลที่วัด — กันการใช้ความสูงเก่ากับข้อมูลชุดใหม่ */
+  signature: string;
+  rowHeights: number[];
+  capacityPx: number;
+};
 
-/** ความกว้างคอลัมน์ "ลำดับ" ของรายงาน (มม.) — รวมกับ 7 คอลัมน์แล้วต้องเท่ากับพื้นที่พิมพ์ A4 */
-const INDEX_COLUMN_WIDTH_MM = 10;
+function sameHeights(a: number[], b: number[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (Math.abs(a[i] - b[i]) > 0.5) return false;
+  }
+  return true;
+}
 
 export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload }: ReportStepProps) {
   const [filters, setFilters] = useState<FilterState>({
@@ -51,15 +66,6 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
   const months = useMemo(() => monthOptions(rows), [rows]);
   const reportRows = useMemo(() => applyFilters(rows, filters), [rows, filters]);
 
-  const pages = useMemo(() => {
-    const chunks: RegisterRow[][] = [];
-    if (reportRows.length === 0) return chunks;
-    for (let i = 0; i < reportRows.length; i += ROWS_PER_PRINT_PAGE) {
-      chunks.push(reportRows.slice(i, i + ROWS_PER_PRINT_PAGE));
-    }
-    return chunks;
-  }, [reportRows]);
-
   const rangeLabel = useMemo(() => {
     if (filters.dateFrom && filters.dateTo) {
       return `ระหว่างวันที่ ${formatThaiDateInput(filters.dateFrom)} ถึง ${formatThaiDateInput(filters.dateTo)}`;
@@ -75,6 +81,123 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
     }
     return 'ข้อมูลทั้งหมดที่นำเข้า';
   }, [filters, months, statistics]);
+
+  // --- การแบ่งหน้าจากความสูงจริงของเนื้อหา (ไม่ใช้จำนวนแถวตายตัว) ---
+  const measureRef = useRef<HTMLDivElement>(null);
+  const measureHeaderRef = useRef<HTMLDivElement>(null);
+  const measureTableRef = useRef<HTMLTableElement>(null);
+  const measureFooterRef = useRef<HTMLDivElement>(null);
+  const measureSignRef = useRef<HTMLDivElement>(null);
+  const [layout, setLayout] = useState<MeasuredLayout | null>(null);
+
+  const rowsSignature = useMemo(
+    () =>
+      reportRows
+        .map((row) =>
+          [
+            row.id,
+            row.receiveNo,
+            row.documentNo,
+            row.documentDateText,
+            row.from,
+            row.subject,
+            row.receivedDateText,
+          ].join('\u0001'),
+        )
+        .join('\u0002'),
+    [reportRows],
+  );
+
+  const printedAtLabel = useMemo(
+    () =>
+      new Date().toLocaleDateString('th-TH', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      }),
+    [],
+  );
+
+  const signatureLabel = includeSignature ? `${signerName}|${signerPosition}` : '';
+
+  useLayoutEffect(() => {
+    let cancelled = false;
+
+    const measure = () => {
+      if (cancelled) return;
+      const header = measureHeaderRef.current;
+      const table = measureTableRef.current;
+      const footer = measureFooterRef.current;
+      if (!header || !table) return;
+
+      const headerStyle = window.getComputedStyle(header);
+      const headerHeight =
+        header.getBoundingClientRect().height + (Number.parseFloat(headerStyle.marginBottom) || 0);
+      const tableHeadHeight = table.tHead ? table.tHead.getBoundingClientRect().height : 0;
+      const footerHeight = footer ? footer.getBoundingClientRect().height : 0;
+      const trailingHeight = measureSignRef.current
+        ? measureSignRef.current.getBoundingClientRect().height
+        : 0;
+
+      const body = table.tBodies[0];
+      const rowHeights = body
+        ? Array.from(body.rows).map((row) => row.getBoundingClientRect().height)
+        : [];
+
+      const capacityPx = computeRowCapacityPx({
+        headerHeight,
+        tableHeadHeight,
+        footerHeight,
+        trailingHeight,
+      });
+
+      setLayout((previous) => {
+        if (
+          previous &&
+          previous.signature === rowsSignature &&
+          Math.abs(previous.capacityPx - capacityPx) <= 0.5 &&
+          sameHeights(previous.rowHeights, rowHeights)
+        ) {
+          return previous;
+        }
+        return { signature: rowsSignature, rowHeights, capacityPx };
+      });
+    };
+
+    measure();
+
+    // ฟอนต์ Sarabun โหลดแบบ async — วัดซ้ำเมื่อโหลดเสร็จเพื่อไม่ให้ความสูงคลาดเคลื่อน
+    const fonts = (document as Document & { fonts?: FontFaceSet }).fonts;
+    if (fonts?.ready) {
+      void fonts.ready.then(() => measure()).catch(() => undefined);
+    }
+
+    window.addEventListener('resize', measure);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('resize', measure);
+    };
+  }, [rowsSignature, orgName, reportTitle, rangeLabel, includeSignature, signatureLabel, printedAtLabel]);
+
+  /** ใช้เฉพาะผลวัดที่ตรงกับข้อมูลชุดปัจจุบัน — กันหน้าเพี้ยนระหว่างที่ยังวัดไม่เสร็จ */
+  const activeLayout = layout && layout.signature === rowsSignature ? layout : null;
+
+  const pages = useMemo(() => {
+    if (!activeLayout || reportRows.length === 0) return [] as RegisterRow[][];
+    const slices = paginateRowsByHeight(activeLayout.rowHeights, activeLayout.capacityPx);
+    return slices.map((slice) => reportRows.slice(slice.start, slice.end));
+  }, [activeLayout, reportRows]);
+
+  /** ลำดับเริ่มต้นของแต่ละหน้า ใช้คำนวณเลขลำดับต่อเนื่อง (1..N) ข้ามหน้า */
+  const pageStarts = useMemo(() => {
+    const starts: number[] = [];
+    let running = 0;
+    for (const page of pages) {
+      starts.push(running);
+      running += page.length;
+    }
+    return starts;
+  }, [pages]);
 
   if (rows.length === 0) {
     return (
@@ -282,7 +405,7 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
           ส่งออกข้อมูลเป็น Excel
         </button>
         <span className="text-muted report-toolbar-hint">
-          กำหนดกระดาษ A4 แนวตั้ง ระยะขอบ 12–13 มม. และเปิด “Background graphics” เพื่อให้สีหัวตารางติดมาด้วย
+          กำหนดกระดาษ A4 แนวตั้ง ระยะขอบ 10–12 มม. และเปิด “Background graphics” เพื่อให้สีหัวตารางติดมาด้วย
         </span>
       </div>
 
@@ -306,9 +429,75 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
         </section>
       ) : null}
 
+      {/*
+        พื้นที่วัดความสูงจริง (ไม่แสดงบนจอและไม่พิมพ์)
+        ใช้ตาราง/สไตล์ชุดเดียวกับรายงาน เพื่อให้ความสูงของแถวที่วัดได้
+        ตรงกับตอนพิมพ์จริง แล้วนำไปคำนวณการแบ่งหน้า
+      */}
+      <div className="report-measure" aria-hidden="true" ref={measureRef}>
+        <div className="report-header" ref={measureHeaderRef}>
+          {orgName ? <div className="report-org">{orgName}</div> : null}
+          <h1 className="report-title">{reportTitle || 'ทะเบียนหนังสือรับ'}</h1>
+          <div className="report-range">{rangeLabel}</div>
+          <div className="report-meta">
+            <span>จำนวนรายการในรายงาน: {reportRows.length.toLocaleString('th-TH')} รายการ</span>
+            <span>หน้า 88 จาก 88</span>
+          </div>
+        </div>
+
+        <table className="report-table" ref={measureTableRef}>
+          <colgroup>
+            <col style={{ width: `${REPORT_INDEX_WIDTH_MM}mm` }} />
+            {REPORT_COLUMNS.map((column) => (
+              <col key={column.key} style={{ width: `${column.widthMm}mm` }} />
+            ))}
+          </colgroup>
+          <thead>
+            <tr>
+              <th>ลำดับ</th>
+              {REPORT_COLUMNS.map((column) => (
+                <th key={column.key}>{column.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {reportRows.map((row, index) => (
+              <tr key={row.id}>
+                <td className="col-center">{index + 1}</td>
+                {REPORT_COLUMNS.map((column) => {
+                  const center =
+                    column.key === 'receiveNo' ||
+                    column.key === 'documentDate' ||
+                    column.key === 'receivedDate';
+                  return (
+                    <td key={column.key} className={center ? 'col-center' : ''}>
+                      {reportColumnValue(row, column.key)}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {includeSignature ? (
+          <div className="report-footer-note" ref={measureSignRef} style={{ textAlign: 'right', marginTop: '12mm' }}>
+            <div style={{ display: 'inline-block', textAlign: 'center', minWidth: '70mm' }}>
+              <div>ลงชื่อ ....................................................</div>
+              <div style={{ marginTop: 4 }}>({signerName || '...........................................'})</div>
+              <div>{signerPosition || '...........................................'}</div>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="report-footer-note" ref={measureFooterRef}>
+          พิมพ์จากระบบทะเบียนหนังสือ เมื่อ {printedAtLabel}
+        </div>
+      </div>
+
       <div className="report-preview-wrap">
         {pages.map((pageRows, pageIndex) => (
-          <div className="a4-page" key={pageIndex}>
+          <div className="a4-page" key={`page-${pageIndex}`}>
             <header className="report-header">
               {orgName ? <div className="report-org">{orgName}</div> : null}
               <h1 className="report-title">{reportTitle || 'ทะเบียนหนังสือรับ'}</h1>
@@ -323,7 +512,7 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
 
             <table className="report-table">
               <colgroup>
-                <col style={{ width: `${INDEX_COLUMN_WIDTH_MM}mm` }} />
+                <col style={{ width: `${REPORT_INDEX_WIDTH_MM}mm` }} />
                 {REPORT_COLUMNS.map((column) => (
                   <col key={column.key} style={{ width: `${column.widthMm}mm` }} />
                 ))}
@@ -338,7 +527,7 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
               </thead>
               <tbody>
                 {pageRows.map((row, index) => {
-                  const globalIndex = pageIndex * ROWS_PER_PRINT_PAGE + index + 1;
+                  const globalIndex = pageStarts[pageIndex] + index + 1;
                   return (
                     <tr key={row.id} className="report-row">
                       <td className="col-center">{globalIndex}</td>
@@ -371,12 +560,7 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
             ) : null}
 
             <div className="report-footer-note">
-              พิมพ์จากระบบทะเบียนหนังสือ เมื่อ{' '}
-              {new Date().toLocaleDateString('th-TH', {
-                day: 'numeric',
-                month: 'long',
-                year: 'numeric',
-              })}
+              พิมพ์จากระบบทะเบียนหนังสือ เมื่อ {printedAtLabel}
             </div>
           </div>
         ))}

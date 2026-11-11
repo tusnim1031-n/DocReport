@@ -969,6 +969,120 @@ async function main() {
   );
 
   // ------------------------------------------------------------------
+  section('11. การแบ่งหน้ารายงานตามความสูงจริง (reportLayout.ts)');
+
+  const layout = await loadModule('src/lib/reportLayout.ts');
+
+  check(
+    'พื้นที่พิมพ์ A4 หลังหักระยะขอบ = 186 × 277 มม.',
+    layout.CONTENT_WIDTH_MM === 186 && layout.CONTENT_HEIGHT_MM === 277,
+    `${layout.CONTENT_WIDTH_MM} × ${layout.CONTENT_HEIGHT_MM}`,
+  );
+  check(
+    'ความกว้างคอลัมน์ 7 ช่อง + ลำดับ = ความกว้างพื้นที่พิมพ์พอดี',
+    types.REPORT_COLUMNS.reduce((sum, column) => sum + column.widthMm, 0) +
+      layout.REPORT_INDEX_WIDTH_MM ===
+      layout.CONTENT_WIDTH_MM,
+    String(types.REPORT_COLUMNS.reduce((sum, column) => sum + column.widthMm, 0)),
+  );
+  check(
+    '1 มม. = 96/25.4 px (基準เดียวกับเบราว์เซอร์)',
+    Math.abs(layout.mmToPx(25.4) - 96) < 1e-9,
+    String(layout.mmToPx(25.4)),
+  );
+
+  // แถวปกติ: เติมได้เต็มหน้าตามความสูง
+  const equalRows = new Array(100).fill(20);
+  const equalPages = layout.paginateRowsByHeight(equalRows, 500);
+  check(
+    'แถวสูงเท่ากัน 100 แถว แบ่งหน้าได้พอดี (25 แถว/หน้า)',
+    layout.rowCountsPerPage(equalPages).every((count) => count === 25) && equalPages.length === 4,
+    JSON.stringify(layout.rowCountsPerPage(equalPages)),
+  );
+  check(
+    'ทุกแถวถูกจัดลงหน้าครบและเรียงต่อเนื่อง ไม่ซ้ำ ไม่หาย',
+    equalPages.every((page, index) => page.start === (index === 0 ? 0 : equalPages[index - 1].end)) &&
+      equalPages[equalPages.length - 1].end === equalRows.length,
+  );
+  check(
+    'ความสูงรวมของทุกหน้าไม่เกินพื้นที่ที่กำหนด',
+    equalPages.every((page) => layout.sumHeights(equalRows, page.start, page.end) <= 500),
+  );
+
+  // แถวสูงต่างกันมาก (เรื่องยาว) — ต้องได้จำนวนแถวต่อหน้าไม่เท่ากัน แต่ไม่ล้นหน้า
+  const mixedRows = [
+    24, 24, 24, 90, 24, 120, 24, 24, 64, 24, 24, 24, 24, 150, 24, 24, 24, 24, 24, 24,
+  ];
+  const mixedPages = layout.paginateRowsByHeight(mixedRows, 300);
+  check(
+    'แถวสูงไม่เท่ากัน: ทุกหน้าไม่ล้นพื้นที่ 300px',
+    mixedPages.every((page) => layout.sumHeights(mixedRows, page.start, page.end) <= 300),
+    JSON.stringify(layout.rowCountsPerPage(mixedPages)),
+  );
+  check(
+    'แถวสูงไม่เท่ากัน: จำนวนแถวต่อหน้าไม่คงที่ (ปรับตามความสูงจริง)',
+    new Set(layout.rowCountsPerPage(mixedPages)).size > 1,
+    JSON.stringify(layout.rowCountsPerPage(mixedPages)),
+  );
+  check(
+    'แถวสูงไม่เท่ากัน: ครบทุกแถวและไม่มีการตัดแถวกลางคัน',
+    mixedPages.reduce((sum, page) => sum + (page.end - page.start), 0) === mixedRows.length,
+  );
+
+  // แถวเดียวสูงเกินพื้นที่: ต้องไม่วนลูป และต้องไม่ทิ้งแถว
+  const hugeRow = layout.paginateRowsByHeight([900, 20, 20], 300);
+  check(
+    'แถวสูงเกินพื้นที่: อยู่หน้าเดียวตามลำพังและไม่ทำให้แถวอื่นหาย',
+    hugeRow.length === 2 &&
+      hugeRow[0].end - hugeRow[0].start === 1 &&
+      hugeRow.reduce((sum, page) => sum + (page.end - page.start), 0) === 3,
+    JSON.stringify(hugeRow),
+  );
+
+  // ช่องลงนามท้ายรายงาน: ต้องยกแถวออกไปหน้าใหม่ถ้าที่ไม่พอ
+  const withSignature = layout.paginateRowsByHeight(new Array(10).fill(24), 120, {
+    trailingHeight: 40,
+  });
+  const lastPage = withSignature[withSignature.length - 1];
+  check(
+    'ช่องลงนาม: หน้าสุดท้ายเหลือที่พอสำหรับลงนาม',
+    layout.sumHeights(new Array(10).fill(24), lastPage.start, lastPage.end) + 40 <= 120,
+    JSON.stringify(layout.rowCountsPerPage(withSignature)),
+  );
+  check(
+    'ช่องลงนาม: ข้อมูลยังครบทุกแถว',
+    withSignature.reduce((sum, page) => sum + (page.end - page.start), 0) === 10,
+  );
+
+  // ไม่มีข้อมูล = ไม่มีหน้า
+  check('ไม่มีรายการ = 0 หน้า', layout.paginateRowsByHeight([], 500).length === 0);
+
+  // capacity ต้องหักหัวรายงาน/หัวตาราง/ส่วนท้ายออก
+  const capacity = layout.computeRowCapacityPx({
+    headerHeight: 90,
+    tableHeadHeight: 26,
+    footerHeight: 18,
+  });
+  check(
+    'capacity หักหัวรายงาน/หัวตาราง/ส่วนท้าย และเผื่อความคลาดเคลื่อนแล้ว',
+    Math.abs(
+      capacity - (layout.mmToPx(layout.CONTENT_HEIGHT_MM) - layout.mmToPx(4) - 90 - 26 - 18),
+    ) < 1e-6,
+    String(capacity),
+  );
+  check('capacity ต้องมากกว่า 0 เสมอ', capacity > 0);
+
+  // ข้อมูลจำนวนมาก: ต้องได้จำนวนแถวครบและจำนวนหน้าไม่มากเกินจริง
+  const bigRows = new Array(200).fill(24);
+  const bigPages = layout.paginateRowsByHeight(bigRows, 500);
+  check(
+    '200 แถว: จำนวนแถวครบทุกหน้าและจำนวนหน้าเหมาะสม',
+    bigPages.reduce((sum, page) => sum + (page.end - page.start), 0) === 200 &&
+      bigPages.length === 10,
+    `${bigPages.length} หน้า`,
+  );
+
+  // ------------------------------------------------------------------
   section('สรุปผลการทดสอบ');
   console.log(`ผ่าน ${passCount} รายการ • ไม่ผ่าน ${failCount} รายการ`);
   if (failures.length > 0) {

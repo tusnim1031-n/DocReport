@@ -27,12 +27,16 @@ export type RegisterRow = {
   dateIssue: string;
 };
 
+/**
+ * ความกว้างคอลัมน์ (มม.) — ผลรวม 176 มม. + คอลัมน์ "ลำดับ" 10 มม. = 186 มม.
+ * เท่ากับพื้นที่พิมพ์จริงของ A4 (210 − 12 − 12) พอดี จึงไม่มีการย่อ/ขยายคอลัมน์
+ */
 export const REPORT_COLUMNS = [
   { key: 'receiveNo', label: 'เลขรับ', widthMm: 17 },
   { key: 'documentNo', label: 'ที่', widthMm: 21 },
   { key: 'documentDate', label: 'ลงวันที่', widthMm: 21 },
-  { key: 'from', label: 'จาก', widthMm: 28 },
-  { key: 'subject', label: 'เรื่อง', widthMm: 48 },
+  { key: 'from', label: 'จาก', widthMm: 29 },
+  { key: 'subject', label: 'เรื่อง', widthMm: 49 },
   { key: 'receivedDate', label: 'วันที่รับ', widthMm: 21 },
   { key: 'note', label: 'หมายเหตุ', widthMm: 18 },
 ] as const;
