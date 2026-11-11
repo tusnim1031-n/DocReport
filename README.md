@@ -254,6 +254,8 @@ npm run preview
 
 ## การนำขึ้นออนไลน์ (Deploy)
 
+**เว็บที่ deploy แล้ว:** https://docreport.tusnim1031.workers.dev
+
 โปรเจกต์นี้เป็นเว็บ static ทั้งหมด (ประมวลผลในเบราว์เซอร์) จึง host ได้ด้วย Cloudflare Workers (Static Assets)
 
 ### ตัวเลือก A — Deploy อัตโนมัติผ่าน GitHub Actions (แนะนำ)
