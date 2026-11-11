@@ -11,7 +11,8 @@
     "make-sample": "node scripts/make-sample.mjs",
     "make-time-test": "node scripts/make-time-test.mjs",
     "probe-dates": "node scripts/probe-dates.mjs",
-    "test": "node scripts/test.mjs"
+    "test": "node scripts/test.mjs",
+    "deploy": "npm run build && npx wrangler@4 deploy"
   },
   "dependencies": {
     "@fontsource/sarabun": "^5.1.0",

@@ -1,7 +1,11 @@
 {
+  // ชื่อโปรเจกต์บน Cloudflare Workers (URL จะเป็น <name>.<subdomain>.workers.dev)
   "name": "docreport",
   "compatibility_date": "2025-10-20",
   "assets": {
-    "directory": "./dist"
+    // โฟลเดอร์ไฟล์ static ที่ได้จาก `npm run build`
+    "directory": "./dist",
+    // แอปเป็น single-page application — ให้เสิร์ฟ index.html เมื่อไม่พบเส้นทาง
+    "not_found_handling": "single-page-application"
   }
 }
