@@ -4,7 +4,8 @@
  * - เปิดหน้ารายงาน แล้ววัดความสูงจริงของทุกหน้าเทียบพื้นที่พิมพ์ A4
  * - สั่ง Page.printToPDF แล้วนับจำนวนหน้าของ PDF จริง
  *
- * ใช้งาน: node scripts/verify-print-pdf.mjs [baseUrl]
+ * ใช้งาน: node scripts/verify-print-pdf.mjs [baseUrl] [file.xlsx]
+ *   ถ้าไม่ระบุไฟล์ จะสร้างไฟล์ทดสอบขนาด 1/10/20/36/68/100 แถวให้อัตโนมัติ
  * ต้องเปิดเซิร์ฟเวอร์ไว้ก่อน เช่น npx vite preview --port 4199
  */
 import { spawn } from 'node:child_process';
@@ -31,7 +32,32 @@ if (!chromePath) {
   process.exit(1);
 }
 
-const SIZES = (process.env.SIZES ?? '1,10,20,36,68,100')
+/**
+ * ถ้ากำหนด FILE=/path/report.xlsx จะนำเข้าไฟล์นั้นแทนการสร้างไฟล์ทดสอบ
+ * และใช้จำนวนแถวในไฟล์เป็นจำนวนที่ต้องตรวจ
+ */
+const FILE = (process.env.FILE ?? process.argv[3] ?? '').trim()
+  ? resolve((process.env.FILE ?? process.argv[3]).trim())
+  : null;
+if (FILE && !existsSync(FILE)) {
+  console.error(`ไม่พบไฟล์: ${FILE}`);
+  process.exit(1);
+}
+
+/** นับแถวข้อมูลในไฟล์ (แถวใต้หัวตารางที่มีข้อมูลอย่างน้อยหนึ่งช่อง) */
+function countWorkbookRows(filePath) {
+  const book = XLSX.read(readFileSync(filePath), { type: 'buffer' });
+  const sheet = book.Sheets[book.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: '' });
+  const headerIndex = rows.findIndex((row) => row.some((cell) => String(cell).trim() === 'เลขรับ'));
+  const start = headerIndex >= 0 ? headerIndex + 1 : 0;
+  return rows
+    .slice(start)
+    .filter((row) => row.some((cell) => String(cell).trim() !== '')).length;
+}
+
+const fileRows = FILE ? countWorkbookRows(FILE) : null;
+const SIZES = (process.env.SIZES ?? (fileRows ? String(fileRows) : '1,10,20,36,68,100'))
   .split(',')
   .map((value) => Number(value.trim()))
   .filter((value) => Number.isFinite(value) && value >= 0);
@@ -316,8 +342,9 @@ async function main() {
     await session.send('Runtime.enable');
 
     for (const size of SIZES) {
-      const filePath = join(tempRoot, `pagination-${size}.xlsx`);
-      writeFileSync(filePath, makeWorkbook(size));
+      const expectedRows = fileRows ?? size;
+      const filePath = FILE ?? join(tempRoot, `pagination-${size}.xlsx`);
+      if (!FILE) writeFileSync(filePath, makeWorkbook(size));
 
       await session.send('Page.navigate', { url: baseUrl });
       await sleep(900);
@@ -440,7 +467,7 @@ async function main() {
 
       const rowCounts = metrics.pageInfo.map((page) => page.rows);
       const ok =
-        totalRows === size &&
+        totalRows === expectedRows &&
         overflowPages.length === 0 &&
         emptyPages.length === 0 &&
         pdfPages === metrics.pageCount &&
@@ -449,7 +476,7 @@ async function main() {
       if (!ok) failed += 1;
 
       results.push({
-        size,
+        size: expectedRows,
         pages: metrics.pageCount,
         pdfPages,
         totalRows,
@@ -466,9 +493,9 @@ async function main() {
       });
 
       console.log(
-        `n=${String(size).padStart(3)} | UI ${String(metrics.pageCount).padStart(2)} หน้า | PDF ${String(
+        `n=${String(expectedRows).padStart(3)} | UI ${String(metrics.pageCount).padStart(2)} หน้า | PDF ${String(
           pdfPages,
-        ).padStart(2)} หน้า | แถว ${String(totalRows).padStart(3)}/${String(size).padEnd(3)} | สูงสุด ${(
+        ).padStart(2)} หน้า | แถว ${String(totalRows).padStart(3)}/${String(expectedRows).padEnd(3)} | สูงสุด ${(
           Math.max(...metrics.pageInfo.map((page) => page.content)) / MM_PX
         ).toFixed(1)}/${(metrics.limit / MM_PX).toFixed(0)} มม. | ล้น ${overflowPages.length} | หน้าว่าง ${
           emptyPages.length

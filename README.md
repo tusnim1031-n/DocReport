@@ -328,6 +328,10 @@ npm run deploy         # build แล้ว deploy ขึ้น Cloudflare Worke
 > การตรวจ PDF จริง: `npm run build` → `npx vite preview --port 4199` → `node scripts/verify-print-pdf.mjs http://localhost:4199`
 > (เพิ่ม `SIGNATURE=1` เพื่อทดสอบช่องลงนาม, `REALISTIC=1` เพื่อใช้ข้อมูลความยาวใกล้งานจริง และ `SIZES=1,10,36` เพื่อเลือกขนาดข้อมูล)
 >
+> ตรวจกับไฟล์ Excel ของจริง: `node scripts/verify-print-pdf.mjs http://localhost:4199 "path\report.xlsx"`
+> หรือ `FILE="path\report.xlsx" node scripts/verify-print-pdf.mjs http://localhost:4199`
+> (สคริปต์จะนำเข้าไฟล์นั้น วัดการแบ่งหน้า แล้วพิมพ์ PDF จริงออกมาตรวจให้)
+>
 > ตรวจไฟล์ PDF ที่พิมพ์ออกมาแล้ว (เลขหน้าตรงกันไหม, หัวรายงานครบทุกหน้าไหม, เลขลำดับต่อเนื่องไหม, มีช่องว่างผิดปกติไหม):
 > `npm run verify:pdf-layout -- "path\to\report.pdf"`
 
