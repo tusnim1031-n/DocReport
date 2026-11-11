@@ -326,7 +326,10 @@ npm run deploy         # build แล้ว deploy ขึ้น Cloudflare Worke
 | `ทดสอบ_หลายขนาด.xlsx` | ชีต 1/10/20/36/68/100 แถว เรื่องยาว–สั้นคละกัน สำหรับตรวจการแบ่งหน้า | `node scripts/make-pagination-test.mjs` |
 
 > การตรวจ PDF จริง: `npm run build` → `npx vite preview --port 4199` → `node scripts/verify-print-pdf.mjs http://localhost:4199`
-> (เพิ่ม `SIGNATURE=1` เพื่อทดสอบช่องลงนาม และ `SIZES=1,10,36` เพื่อเลือกขนาดข้อมูล)
+> (เพิ่ม `SIGNATURE=1` เพื่อทดสอบช่องลงนาม, `REALISTIC=1` เพื่อใช้ข้อมูลความยาวใกล้งานจริง และ `SIZES=1,10,36` เพื่อเลือกขนาดข้อมูล)
+>
+> ตรวจไฟล์ PDF ที่พิมพ์ออกมาแล้ว (เลขหน้าตรงกันไหม, หัวรายงานครบทุกหน้าไหม, เลขลำดับต่อเนื่องไหม, มีช่องว่างผิดปกติไหม):
+> `npm run verify:pdf-layout -- "path\to\report.pdf"`
 
 ---
 
@@ -347,6 +350,7 @@ newdoc/
 │  ├─ make-sample.mjs             สร้างไฟล์ตัวอย่างใน sample/
 │  ├─ make-pagination-test.mjs    สร้างไฟล์ทดสอบการแบ่งหน้า (1/10/20/36/68/100 แถว)
 │  ├─ verify-print-pdf.mjs        ตรวจ PDF จริงด้วย Chrome headless (จำนวนหน้า/การล้น/หน้าว่าง)
+│  ├─ verify-pdf-layout.mjs       ตรวจ PDF ที่พิมพ์แล้ว (เลขหน้า/หัวรายงาน/ลำดับ/ช่องว่าง)
 │  ├─ probe-dates.mjs             ตรวจสอบการแปลงวันที่ (ใช้ระหว่างพัฒนา)
 │  └─ test.mjs                    ชุดทดสอบอัตโนมัติ
 ├─ sample/                        ไฟล์ตัวอย่างข้อมูลสมมติ

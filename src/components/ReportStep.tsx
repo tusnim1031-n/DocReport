@@ -408,7 +408,8 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
           ส่งออกข้อมูลเป็น Excel
         </button>
         <span className="text-muted report-toolbar-hint">
-          กำหนดกระดาษ A4 แนวตั้ง ระยะขอบ 10–12 มม. และเปิด “Background graphics” เพื่อให้สีหัวตารางติดมาด้วย
+          กำหนดกระดาษ A4 แนวตั้ง มาตราส่วน 100% ระยะขอบ 10–12 มม. และเปิด “Background graphics”
+          เพื่อให้สีหัวตารางติดมาด้วย (อย่าเลือก “Fit to page” เพราะจะทำให้จำนวนหน้าไม่ตรง)
         </span>
       </div>
 

@@ -12,6 +12,7 @@
     "make-time-test": "node scripts/make-time-test.mjs",
     "probe-dates": "node scripts/probe-dates.mjs",
     "test": "node scripts/test.mjs",
+    "verify:pdf-layout": "node scripts/verify-pdf-layout.mjs",
     "deploy": "npm run build && npx wrangler@4 deploy"
   },
   "dependencies": {
@@ -24,6 +25,7 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^5.0.4",
+    "pdfjs-dist": "^4.10.38",
     "typescript": "^5.6.3",
     "vite": "^6.0.11"
   },
