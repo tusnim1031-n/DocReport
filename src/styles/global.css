@@ -2038,15 +2038,16 @@ textarea {
   z-index: -1;
 }
 
+/* โทนสีรายงาน: มินิมอล โมโนโครม (ขาว–ดำ–เทา neutral ไม่อมฟ้า) */
 .a4-page {
   width: 210mm;
   min-height: 297mm;
   /* ระยะขอบต้องตรงกับ @page ด้านล่าง (10 มม. บน/ล่าง, 12 มม. ซ้าย/ขวา) */
   padding: 10mm 12mm;
   background: var(--white);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  box-shadow: var(--shadow);
+  border: 1px solid #e6e6e6;
+  border-radius: 2px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   display: flex;
   flex-direction: column;
 }
@@ -2054,24 +2055,25 @@ textarea {
 .report-header {
   margin-bottom: 5mm;
   text-align: center;
+  color: #111111;
 }
 
 .report-org {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
-  color: var(--navy-900);
+  color: #444444;
 }
 
 .report-title {
   font-size: 16px;
   font-weight: 700;
-  color: var(--navy-900);
+  color: #111111;
   margin: 2px 0 0;
 }
 
 .report-range {
   font-size: 11px;
-  color: var(--gray-700);
+  color: #555555;
   margin-top: 2px;
 }
 
@@ -2080,33 +2082,46 @@ textarea {
   justify-content: space-between;
   gap: 10px;
   margin-top: 3mm;
+  padding-top: 3px;
   font-size: 10px;
-  color: var(--gray-600);
-  border-top: 1px solid var(--gray-300);
-  padding-top: 2px;
+  color: #333333;
+  border-top: 1px solid #111111;
 }
 
+.report-meta span:last-child {
+  font-weight: 700;
+  color: #111111;
+}
+
+/*
+ * ตารางรายงาน: เส้นเทาอ่อนทั่วทั้งตาราง หัวตารางเส้นดำหนา —
+ * ไม่มีพื้นหลังสีเลย จึงพิมพ์ถูกต้องแม้ปิด "Background graphics"
+ */
 .report-table {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
   font-size: 9.5pt;
+  color: #111111;
 }
 
 .report-table thead th {
   padding: 3.5px 4px;
-  border: 1px solid var(--gray-400);
-  background: var(--gray-100);
+  border: 1px solid #111111;
+  border-top-width: 1.5px;
+  border-bottom-width: 1.5px;
+  background: transparent;
   font-size: 9.5pt;
-  font-weight: 600;
-  color: var(--gray-800);
+  font-weight: 700;
+  color: #111111;
   text-align: center;
   vertical-align: middle;
 }
 
 .report-table tbody td {
   padding: calc(3.5px + var(--report-row-pad-extra, 0px)) 4px;
-  border: 1px solid var(--gray-300);
+  border: 1px solid #a0a0a0;
+  color: #111111;
   vertical-align: top;
   overflow-wrap: break-word;
   word-break: normal;
@@ -2122,7 +2137,7 @@ textarea {
   margin-top: auto;
   padding-top: 3mm;
   font-size: 9.5px;
-  color: var(--gray-500);
+  color: #666666;
   text-align: center;
 }
 
@@ -2247,6 +2262,13 @@ textarea {
   .app-shell {
     display: block;
     min-height: 0;
+    /*
+     * ต้นเหตุ "แถบสีฟ้าอ่อนใต้ footer" ใน PDF:
+     * พื้นหลัง workspace (--surface-muted #f6f8fb) ยังถูกทาในโหมดพิมพ์
+     * ขณะที่ .a4-page มีความสูงเท่าเนื้อหา (min-height: 0)
+     * จึงโผล่เป็นแถบใต้เนื้อหาทุกหน้า — ต้องล้างเพื่อให้กระดาษขาวสนิท
+     */
+    background: transparent;
   }
 
   .main-area {
@@ -2306,15 +2328,20 @@ textarea {
     display: table-header-group;
   }
 
+  /*
+   * หัวตารางเป็นเส้นดำล้วน ไม่มีพื้นหลังสี —
+   * ตัดคำสั่ง background/print-color-adjust เดิมออกเพื่อให้ผลลัพธ์เหมือนกันทุกเครื่อง
+   */
   .report-table thead th {
     font-size: 9.5pt;
-    background: var(--gray-100) !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
+    font-weight: 700;
+    color: #111111;
+    background: transparent;
   }
 
   .report-table tbody td {
     font-size: 9.5pt;
+    color: #111111;
   }
 
   /* กันการตัดแถวกลางคัน (แต่ละแถวถูกวัดความสูงและจัดลงหน้าให้พอดีแล้ว) */
