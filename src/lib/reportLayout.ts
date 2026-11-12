@@ -102,6 +102,40 @@ export function paginateRowsByHeight(
   return pages;
 }
 
+/** เพดานการเพิ่มระยะห่างบน/ล่างของแต่ละแถวเมื่อยืดตารางให้เต็มหน้า (มม. ต่อด้าน) */
+export const JUSTIFY_MAX_EXTRA_PAD_MM = 4;
+
+/**
+ * เผื่อพื้นที่ว่างไว้อีกชั้นเมื่อยืดตาราง (มม.)
+ * กันเคสที่ความสูงจริงบนหน้ากระดาษต่างจากตัวที่วัดเล็กน้อย
+ * (เช่น หัวรายงานต่าง ~0.5 มม.) จนเนื้อหาล้นพื้นที่พิมพ์
+ */
+export const JUSTIFY_BUFFER_MM = 1.5;
+
+/**
+ * คำนวณระยะ padding เพิ่ม (px ต่อด้าน) สำหรับแถวในหน้านั้น
+ * ใช้ "ยืดตารางให้เต็มพื้นที่พิมพ์" เพื่อไม่ให้เหลือช่องว่างท้ายหน้า
+ * - ไม่ยืดหน้าสุดท้าย (ปล่อยให้จบตามเนื้อหา)
+ * - หัก JUSTIFY_BUFFER_MM ออกเสมอ กันเนื้อหาล้น
+ * - จำกัดไม่เกิน JUSTIFY_MAX_EXTRA_PAD_MM ต่อด้าน กันแถวบานผิดปกติ
+ */
+export function computeJustifiedExtraPadPx(params: {
+  capacityPx: number;
+  usedPx: number;
+  rowCount: number;
+  isLastPage: boolean;
+  maxPadMm?: number;
+  bufferMm?: number;
+}): number {
+  const { capacityPx, usedPx, rowCount, isLastPage } = params;
+  if (isLastPage || rowCount <= 0) return 0;
+  const leftover = capacityPx - usedPx - mmToPx(params.bufferMm ?? JUSTIFY_BUFFER_MM);
+  if (!(leftover > 0)) return 0;
+  // padding ถูกเพิ่มทั้งบนและล่างของทุกแถว
+  const extra = leftover / (rowCount * 2);
+  return Math.min(extra, mmToPx(params.maxPadMm ?? JUSTIFY_MAX_EXTRA_PAD_MM));
+}
+
 export function sumHeights(rowHeights: number[], start: number, end: number): number {
   let total = 0;
   for (let i = start; i < end; i += 1) {

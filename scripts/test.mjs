@@ -1082,6 +1082,69 @@ async function main() {
     `${bigPages.length} หน้า`,
   );
 
+  // ยืดตารางให้เต็มหน้า: เติม padding ให้แถวจนช่องว่างท้ายหน้าหายไป
+  const justifyGap = 300 - 250; // เหลือ 50px บนหน้าที่มี 10 แถว
+  const justifyPad = layout.computeJustifiedExtraPadPx({
+    capacityPx: 300,
+    usedPx: 250,
+    rowCount: 10,
+    isLastPage: false,
+    bufferMm: 0,
+  });
+  check(
+    'ยืดเต็มหน้า: padding ต่อด้าน = ที่เหลือ ÷ (2 × จำนวนแถว) ทำให้หน้าเต็มพอดี',
+    Math.abs(justifyPad - justifyGap / 20) < 1e-9 &&
+      Math.abs(250 + 10 * 2 * justifyPad - 300) < 1e-9,
+    String(justifyPad),
+  );
+  const bufferedPad = layout.computeJustifiedExtraPadPx({
+    capacityPx: 300,
+    usedPx: 250,
+    rowCount: 10,
+    isLastPage: false,
+  });
+  check(
+    'ยืดเต็มหน้า: เว้น buffer 1.5 มม. กันเนื้อหาล้น (ไม่ยืดจนเต็มเป๊ะ)',
+    bufferedPad > 0 &&
+      Math.abs(250 + 10 * 2 * bufferedPad - (300 - layout.mmToPx(layout.JUSTIFY_BUFFER_MM))) < 1e-9,
+    String(bufferedPad),
+  );
+  check(
+    'ยืดเต็มหน้า: หน้าสุดท้ายไม่ถูกยืด',
+    layout.computeJustifiedExtraPadPx({
+      capacityPx: 300,
+      usedPx: 250,
+      rowCount: 10,
+      isLastPage: true,
+    }) === 0,
+  );
+  check(
+    'ยืดเต็มหน้า: ไม่มีที่เหลือ / ไม่มีแถว = 0',
+    layout.computeJustifiedExtraPadPx({
+      capacityPx: 250,
+      usedPx: 250,
+      rowCount: 10,
+      isLastPage: false,
+    }) === 0 &&
+      layout.computeJustifiedExtraPadPx({
+        capacityPx: 300,
+        usedPx: 250,
+        rowCount: 0,
+        isLastPage: false,
+      }) === 0,
+  );
+  const cappedPad = layout.computeJustifiedExtraPadPx({
+    capacityPx: 1000,
+    usedPx: 0,
+    rowCount: 4,
+    isLastPage: false,
+  });
+  check(
+    'ยืดเต็มหน้า: จำกัดไม่เกิน 4 มม. ต่อด้าน (กันแถวบาน)',
+    Math.abs(cappedPad - layout.mmToPx(layout.JUSTIFY_MAX_EXTRA_PAD_MM)) < 1e-9,
+    `${cappedPad.toFixed(2)}px = ${layout.mmToPx(layout.JUSTIFY_MAX_EXTRA_PAD_MM).toFixed(2)}px`,
+  );
+
   // ------------------------------------------------------------------
   section('สรุปผลการทดสอบ');
   console.log(`ผ่าน ${passCount} รายการ • ไม่ผ่าน ${failCount} รายการ`);

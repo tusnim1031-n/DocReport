@@ -2105,7 +2105,7 @@ textarea {
 }
 
 .report-table tbody td {
-  padding: 3.5px 4px;
+  padding: calc(3.5px + var(--report-row-pad-extra, 0px)) 4px;
   border: 1px solid var(--gray-300);
   vertical-align: top;
   overflow-wrap: break-word;

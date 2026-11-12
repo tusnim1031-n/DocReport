@@ -4,7 +4,7 @@
  * - แสดงเฉพาะวันที่ ไม่แสดงเวลา และไม่มีเครื่องหมายเตือน ⚠
  * - องค์ประกอบของเว็บไซต์ (Sidebar/ปุ่ม/Dashboard) ถูกซ่อนด้วย .no-print
  */
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Alert, Badge, EmptyState } from './ui';
 import {
   IconDownload,
@@ -16,9 +16,11 @@ import { exportRowsToExcel } from '../lib/export';
 import { REPORT_COLUMNS, reportColumnValue } from '../lib/types';
 import type { RegisterRow } from '../lib/types';
 import {
+  computeJustifiedExtraPadPx,
   computeRowCapacityPx,
   paginateRowsByHeight,
   REPORT_INDEX_WIDTH_MM,
+  sumHeights,
 } from '../lib/reportLayout';
 import {
   applyFilters,
@@ -40,6 +42,8 @@ type MeasuredLayout = {
   signature: string;
   rowHeights: number[];
   capacityPx: number;
+  /** ความสูงที่ต้องกันไว้ท้ายหน้าสุดท้าย (เช่น ช่องลงนาม) */
+  trailingHeight: number;
 };
 
 function sameHeights(a: number[], b: number[]): boolean {
@@ -151,7 +155,6 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
         headerHeight,
         tableHeadHeight,
         footerHeight,
-        trailingHeight,
       });
 
       setLayout((previous) => {
@@ -159,11 +162,12 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
           previous &&
           previous.signature === rowsSignature &&
           Math.abs(previous.capacityPx - capacityPx) <= 0.5 &&
+          Math.abs(previous.trailingHeight - trailingHeight) <= 0.5 &&
           sameHeights(previous.rowHeights, rowHeights)
         ) {
           return previous;
         }
-        return { signature: rowsSignature, rowHeights, capacityPx };
+        return { signature: rowsSignature, rowHeights, capacityPx, trailingHeight };
       });
     };
 
@@ -185,11 +189,33 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
   /** ใช้เฉพาะผลวัดที่ตรงกับข้อมูลชุดปัจจุบัน — กันหน้าเพี้ยนระหว่างที่ยังวัดไม่เสร็จ */
   const activeLayout = layout && layout.signature === rowsSignature ? layout : null;
 
-  const pages = useMemo(() => {
-    if (!activeLayout || reportRows.length === 0) return [] as RegisterRow[][];
-    const slices = paginateRowsByHeight(activeLayout.rowHeights, activeLayout.capacityPx);
-    return slices.map((slice) => reportRows.slice(slice.start, slice.end));
+  const slices = useMemo(() => {
+    if (!activeLayout || reportRows.length === 0) return [];
+    return paginateRowsByHeight(activeLayout.rowHeights, activeLayout.capacityPx, {
+      trailingHeight: activeLayout.trailingHeight,
+    });
   }, [activeLayout, reportRows]);
+
+  const pages = useMemo(
+    () => slices.map((slice) => reportRows.slice(slice.start, slice.end)),
+    [slices, reportRows],
+  );
+
+  /**
+   * ระยะ padding เพิ่มของแถวในแต่ละหน้า — ยืดตารางให้เต็มพื้นที่พิมพ์
+   * เพื่อไม่ให้เหลือช่องว่างท้ายหน้า (หน้าสุดท้ายปล่อยตามเนื้อหาจริง)
+   */
+  const pageExtraPadPx = useMemo(() => {
+    if (!activeLayout) return [] as number[];
+    return slices.map((slice, index) =>
+      computeJustifiedExtraPadPx({
+        capacityPx: activeLayout.capacityPx,
+        usedPx: sumHeights(activeLayout.rowHeights, slice.start, slice.end),
+        rowCount: slice.end - slice.start,
+        isLastPage: index === slices.length - 1,
+      }),
+    );
+  }, [activeLayout, slices]);
 
   /** ลำดับเริ่มต้นของแต่ละหน้า ใช้คำนวณเลขลำดับต่อเนื่อง (1..N) ข้ามหน้า */
   const pageStarts = useMemo(() => {
@@ -514,7 +540,10 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
               </div>
             </header>
 
-            <table className="report-table">
+            <table
+              className="report-table"
+              style={{ '--report-row-pad-extra': `${pageExtraPadPx[pageIndex] ?? 0}px` } as CSSProperties}
+            >
               <colgroup>
                 <col style={{ width: `${REPORT_INDEX_WIDTH_MM}mm` }} />
                 {REPORT_COLUMNS.map((column) => (
