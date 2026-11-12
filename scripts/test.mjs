@@ -1064,9 +1064,15 @@ async function main() {
     footerHeight: 18,
   });
   check(
-    'capacity หักหัวรายงาน/หัวตาราง/ส่วนท้าย และเผื่อความคลาดเคลื่อนแล้ว',
+    'capacity หักหัวรายงาน/หัวตาราง/ส่วนท้าย/ขอบตาราง และเผื่อความคลาดเคลื่อนแล้ว',
     Math.abs(
-      capacity - (layout.mmToPx(layout.CONTENT_HEIGHT_MM) - layout.mmToPx(4) - 90 - 26 - 18),
+      capacity -
+        (layout.mmToPx(layout.CONTENT_HEIGHT_MM) -
+          layout.mmToPx(4) -
+          90 -
+          26 -
+          18 -
+          layout.TABLE_BORDER_ALLOWANCE_PX),
     ) < 1e-6,
     String(capacity),
   );
@@ -1143,6 +1149,66 @@ async function main() {
     'ยืดเต็มหน้า: จำกัดไม่เกิน 4 มม. ต่อด้าน (กันแถวบาน)',
     Math.abs(cappedPad - layout.mmToPx(layout.JUSTIFY_MAX_EXTRA_PAD_MM)) < 1e-9,
     `${cappedPad.toFixed(2)}px = ${layout.mmToPx(layout.JUSTIFY_MAX_EXTRA_PAD_MM).toFixed(2)}px`,
+  );
+
+  // ------------------------------------------------------------------
+  section('12. มาตราส่วนเอกสาร (Print Scaling)');
+
+  check(
+    'ขอบเขต Scale = 50–100% และค่าเริ่มต้น 100%',
+    layout.REPORT_SCALE_MIN === 50 &&
+      layout.REPORT_SCALE_MAX === 100 &&
+      layout.REPORT_SCALE_DEFAULT === 100,
+    `${layout.REPORT_SCALE_MIN}–${layout.REPORT_SCALE_MAX} (default ${layout.REPORT_SCALE_DEFAULT})`,
+  );
+  check(
+    'ตัวเลือกสำเร็จรูป = 100/90/80/70/60',
+    [...layout.REPORT_SCALE_PRESETS].join(',') === '100,90,80,70,60',
+    JSON.stringify(layout.REPORT_SCALE_PRESETS),
+  );
+  check(
+    'clamp: ต่ำกว่าขอบล่าง → 50, สูงกว่าขอบบน → 100',
+    layout.clampScalePercent(30) === 50 && layout.clampScalePercent(250) === 100,
+    `${layout.clampScalePercent(30)} / ${layout.clampScalePercent(250)}`,
+  );
+  check(
+    'clamp: ค่าในช่วงที่กำหนดคงไว้ (85 → 85)',
+    layout.clampScalePercent(85) === 85,
+    String(layout.clampScalePercent(85)),
+  );
+  check(
+    'clamp: ค่าที่ไม่ใช่ตัวเลข → ค่าเริ่มต้น 100',
+    layout.clampScalePercent(Number.NaN) === 100,
+    String(layout.clampScalePercent(Number.NaN)),
+  );
+  check(
+    'parse: "85" → 85 และ " 90 " → 90 (มีช่องว่างรอบข้อความก็อ่านได้)',
+    layout.parseScalePercent('85') === 85 && layout.parseScalePercent(' 90 ') === 90,
+    `${layout.parseScalePercent('85')} / ${layout.parseScalePercent(' 90 ')}`,
+  );
+  check(
+    'parse: เกินช่วงถูกจำกัด ("45" → 50, "150" → 100)',
+    layout.parseScalePercent('45') === 50 && layout.parseScalePercent('150') === 100,
+    `${layout.parseScalePercent('45')} / ${layout.parseScalePercent('150')}`,
+  );
+  check(
+    'parse: ว่างหรือไม่ใช่ตัวเลข → null (ให้ผู้เรียกใช้ค่าสำรองเอง)',
+    layout.parseScalePercent('') === null && layout.parseScalePercent('abc') === null,
+    `${String(layout.parseScalePercent(''))} / ${String(layout.parseScalePercent('abc'))}`,
+  );
+
+  // scale ต้องลดจำนวนหน้าได้จริง: แถวที่ย่อตาม scale (0.6) ต้องแบ่งหน้าได้ไม่มากกว่าเดิม
+  const scaleRows = new Array(68).fill(30);
+  const scalePages100 = layout.paginateRowsByHeight(scaleRows, 500);
+  const scalePages60 = layout.paginateRowsByHeight(
+    scaleRows.map((height) => height * 0.6),
+    500,
+  );
+  check(
+    'Scale 60%: จำนวนหน้าไม่เพิ่มขึ้น (เนื้อหาเล็กลง → จุได้มากขึ้น)',
+    scalePages60.length <= scalePages100.length &&
+      scalePages60.reduce((sum, page) => sum + (page.end - page.start), 0) === 68,
+    `${scalePages100.length} หน้า → ${scalePages60.length} หน้า`,
   );
 
   // ------------------------------------------------------------------

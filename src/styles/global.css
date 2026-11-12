@@ -2016,6 +2016,55 @@ textarea {
   font-size: var(--fs-sm);
 }
 
+/* ------------------------ กล่องควบคุมมาตราส่วนเอกสาร ------------------------ */
+.report-scale-group {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  padding-right: var(--sp-3);
+  border-right: 1px solid var(--border);
+}
+
+.report-scale-label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-soft);
+}
+
+.report-scale-custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.report-scale-custom input {
+  width: 68px;
+  padding: 7px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+
+.report-scale-custom input:focus {
+  outline: none;
+  border-color: var(--navy-500);
+  box-shadow: 0 0 0 3px var(--navy-100);
+}
+
+.report-scale-current {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.report-scale-current strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
 .report-preview-wrap {
   display: flex;
   flex-direction: column;
@@ -2038,7 +2087,16 @@ textarea {
   z-index: -1;
 }
 
-/* โทนสีรายงาน: มินิมอล โมโนโครม (ขาว–ดำ–เทา neutral ไม่อมฟ้า) */
+/* โทนสีรายงาน: มินิมอล โมโนโครม (ขาว–ดำ–เทา neutral ไม่อมฟ้า)
+ *
+ * Print Scaling: ทุกค่าความสูง/ฟอนต์/ระยะห่างด้านล่างคูณด้วย --report-scale
+ * (ตัวเลข 0.5–1 จากกล่องเลือก "ขนาดเอกสาร") เพื่อย่อเนื้อหาจริงทั้งจอและพิมพ์
+ * - คงความกว้างตารางไว้ 100% ของพื้นที่กระดาษ → ใช้พื้นที่แนวนอนเต็มที่
+ *   ขณะที่ตัวอักษร/แถวเล็กลง → จำนวนแถวต่อหน้าเพิ่มขึ้นตามสัดส่วน
+ * - ตั้งใจไม่สเกลเส้นขอบ (1px) เพื่อให้เส้นตารางคมชัดเท่ากันทุกขนาด
+ * - ไม่ใช้ transform: scale() (ไม่กระทบการแบ่งหน้า) และไม่ใช้ zoom
+ *   (Chrome ไม่นำ zoom ไปใช้ตอน printToPDF → preview กับ PDF จะไม่ตรงกัน)
+ */
 .a4-page {
   width: 210mm;
   min-height: 297mm;
@@ -2053,37 +2111,45 @@ textarea {
 }
 
 .report-header {
-  margin-bottom: 5mm;
+  /*
+   * flow-root: กัน margin ของ .report-title ล้นผ่านตัว header
+   * ในหน้า preview (.a4-page เป็น flex) header เป็น flex item จึงไม่มี margin
+   * collapse อยู่แล้ว แต่ในพื้นที่วัด (.report-measure เป็น block ธรรมดา)
+   * margin จะหลุดออก ทำให้ header ที่วัดได้สั้นกว่าของจริง ~0.4 มม.
+   * → capacity คลาดเคลื่อนและบางหน้าล้นตอน Scale ต่ำ
+   */
+  display: flow-root;
+  margin-bottom: calc(5mm * var(--report-scale, 1));
   text-align: center;
   color: #111111;
 }
 
 .report-org {
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--report-scale, 1));
   font-weight: 600;
   color: #444444;
 }
 
 .report-title {
-  font-size: 16px;
+  font-size: calc(16px * var(--report-scale, 1));
   font-weight: 700;
   color: #111111;
-  margin: 2px 0 0;
+  margin: calc(2px * var(--report-scale, 1)) 0 0;
 }
 
 .report-range {
-  font-size: 11px;
+  font-size: calc(11px * var(--report-scale, 1));
   color: #555555;
-  margin-top: 2px;
+  margin-top: calc(2px * var(--report-scale, 1));
 }
 
 .report-meta {
   display: flex;
   justify-content: space-between;
-  gap: 10px;
-  margin-top: 3mm;
-  padding-top: 3px;
-  font-size: 10px;
+  gap: calc(10px * var(--report-scale, 1));
+  margin-top: calc(3mm * var(--report-scale, 1));
+  padding-top: calc(3px * var(--report-scale, 1));
+  font-size: calc(10px * var(--report-scale, 1));
   color: #333333;
   border-top: 1px solid #111111;
 }
@@ -2101,17 +2167,17 @@ textarea {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
-  font-size: 9.5pt;
+  font-size: calc(9.5pt * var(--report-scale, 1));
   color: #111111;
 }
 
 .report-table thead th {
-  padding: 3.5px 4px;
+  padding: calc(3.5px * var(--report-scale, 1)) calc(4px * var(--report-scale, 1));
   border: 1px solid #111111;
   border-top-width: 1.5px;
   border-bottom-width: 1.5px;
   background: transparent;
-  font-size: 9.5pt;
+  font-size: calc(9.5pt * var(--report-scale, 1));
   font-weight: 700;
   color: #111111;
   text-align: center;
@@ -2119,7 +2185,13 @@ textarea {
 }
 
 .report-table tbody td {
-  padding: calc(3.5px + var(--report-row-pad-extra, 0px)) 4px;
+  /*
+   * padding ตั้งต้น (3.5px) ย่อตาม scale เพื่อให้แถวเล็กลงจริง
+   * แต่ --report-row-pad-extra (ที่ยืดตารางเต็มหน้า) คงเป็น px จริงตามเดิม
+   * เพราะคำนวณมาจากพื้นที่เหลือบนกระดาษเป็นหน่วยมม. อยู่แล้ว
+   */
+  padding: calc(3.5px * var(--report-scale, 1) + var(--report-row-pad-extra, 0px))
+    calc(4px * var(--report-scale, 1));
   border: 1px solid #a0a0a0;
   color: #111111;
   vertical-align: top;
@@ -2135,8 +2207,8 @@ textarea {
 
 .report-footer-note {
   margin-top: auto;
-  padding-top: 3mm;
-  font-size: 9.5px;
+  padding-top: calc(3mm * var(--report-scale, 1));
+  font-size: calc(9.5px * var(--report-scale, 1));
   color: #666666;
   text-align: center;
 }
@@ -2331,16 +2403,18 @@ textarea {
   /*
    * หัวตารางเป็นเส้นดำล้วน ไม่มีพื้นหลังสี —
    * ตัดคำสั่ง background/print-color-adjust เดิมออกเพื่อให้ผลลัพธ์เหมือนกันทุกเครื่อง
+   * ฟอนต์ต้องคูณ --report-scale เหมือนตอนบนจอ (ถ้าคง 9.5pt ตายตัว
+   * หัวตารางจะใหญ่กว่าเนื้อหาตอนที่ผู้ใช้ย่อเอกสาร)
    */
   .report-table thead th {
-    font-size: 9.5pt;
+    font-size: calc(9.5pt * var(--report-scale, 1));
     font-weight: 700;
     color: #111111;
     background: transparent;
   }
 
   .report-table tbody td {
-    font-size: 9.5pt;
+    font-size: calc(9.5pt * var(--report-scale, 1));
     color: #111111;
   }
 

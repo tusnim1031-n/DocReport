@@ -19,7 +19,11 @@ import {
   computeJustifiedExtraPadPx,
   computeRowCapacityPx,
   paginateRowsByHeight,
+  parseScalePercent,
   REPORT_INDEX_WIDTH_MM,
+  REPORT_SCALE_DEFAULT,
+  REPORT_SCALE_MAX,
+  REPORT_SCALE_MIN,
   sumHeights,
 } from '../lib/reportLayout';
 import {
@@ -65,6 +69,27 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
   const [signerName, setSignerName] = useState('');
   const [signerPosition, setSignerPosition] = useState('');
   const [includeSignature, setIncludeSignature] = useState(false);
+
+  /*
+   * มาตราส่วนเอกสาร (Print Scaling) — ค่าที่ผู้ใช้เลือกจะถูกเก็บไว้ตลอด
+   * จะไม่ถูกรีเซ็ตเมื่อเปลี่ยนตัวกรอง/ข้อมูล (คืนค่า 100% เฉพาะตอนกดปุ่มคืนค่าเอง)
+   */
+  const [scaleMode, setScaleMode] = useState<'100' | '90' | '80' | '70' | '60' | 'custom'>('100');
+  const [customScaleText, setCustomScaleText] = useState('85');
+
+  /** เปอร์เซ็นต์ที่มีผลจริงตอนนี้ (custom ถูกจำกัดช่วง 50–100 เสมอ) */
+  const effectiveScale = useMemo(() => {
+    if (scaleMode === 'custom') {
+      return parseScalePercent(customScaleText) ?? REPORT_SCALE_DEFAULT;
+    }
+    return Number(scaleMode);
+  }, [scaleMode, customScaleText]);
+
+  /** ค่าที่ส่งเข้า CSS — ตัวเลข 0.5–1 ให้ calc() ในสไตล์รายงานคูณไว้ทุกจุด */
+  const scaleStyle = useMemo(
+    () => ({ '--report-scale': String(effectiveScale / 100) } as CSSProperties),
+    [effectiveScale],
+  );
 
   const statistics = useMemo(() => computeStatistics(rows), [rows]);
   const months = useMemo(() => monthOptions(rows), [rows]);
@@ -184,7 +209,7 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
       cancelled = true;
       window.removeEventListener('resize', measure);
     };
-  }, [rowsSignature, orgName, reportTitle, rangeLabel, includeSignature, signatureLabel, printedAtLabel]);
+  }, [rowsSignature, orgName, reportTitle, rangeLabel, includeSignature, signatureLabel, printedAtLabel, effectiveScale]);
 
   /** ใช้เฉพาะผลวัดที่ตรงกับข้อมูลชุดปัจจุบัน — กันหน้าเพี้ยนระหว่างที่ยังวัดไม่เสร็จ */
   const activeLayout = layout && layout.signature === rowsSignature ? layout : null;
@@ -425,6 +450,54 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
       </section>
 
       <div className="report-toolbar no-print">
+        {/*
+          ควบคุมมาตราส่วนเอกสาร — มีผลทั้งบนจอและตอนพิมพ์จริง (PDF)
+          เพราะค่าถูกส่งเข้า CSS --report-scale ที่ตัวอย่างหน้าและตัววัดพร้อมกัน
+        */}
+        <div className="report-scale-group">
+          <label className="report-scale-label" htmlFor="report-scale-select">
+            ขนาดเอกสาร
+          </label>
+          <select
+            id="report-scale-select"
+            className="mini-select"
+            value={scaleMode}
+            onChange={(event) => setScaleMode(event.target.value as typeof scaleMode)}
+          >
+            <option value="100">100% (ปกติ)</option>
+            <option value="90">90%</option>
+            <option value="80">80%</option>
+            <option value="70">70%</option>
+            <option value="60">60%</option>
+            <option value="custom">กำหนดเอง</option>
+          </select>
+          {scaleMode === 'custom' ? (
+            <span className="report-scale-custom">
+              <input
+                id="report-scale-custom"
+                type="number"
+                min={REPORT_SCALE_MIN}
+                max={REPORT_SCALE_MAX}
+                step={1}
+                value={customScaleText}
+                onChange={(event) => setCustomScaleText(event.target.value)}
+                aria-label="เปอร์เซ็นต์ขนาดเอกสาร (50 ถึง 100)"
+              />
+              <span aria-hidden="true">%</span>
+            </span>
+          ) : null}
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => setScaleMode('100')}
+            disabled={scaleMode === '100'}
+          >
+            คืนค่า 100%
+          </button>
+          <span className="report-scale-current">
+            ขนาดปัจจุบัน <strong>{effectiveScale}%</strong> • {pages.length} หน้า
+          </span>
+        </div>
         <button type="button" className="btn btn-primary" onClick={handlePrint} disabled={reportRows.length === 0}>
           <IconPrinter size={16} />
           พิมพ์รายงาน / บันทึกเป็น PDF
@@ -434,7 +507,8 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
           ส่งออกข้อมูลเป็น Excel
         </button>
         <span className="text-muted report-toolbar-hint">
-          กำหนดกระดาษ A4 แนวตั้ง มาตราส่วน 100% ระยะขอบ 10–12 มม.
+          เลือก “ขนาดเอกสาร” ด้านบนเพื่อย่อ/ขยายเนื้อหาและจำนวนรายการต่อหน้า (มีผลทั้งหน้าจอและ PDF)
+          จากนั้นพิมพ์ด้วยกระดาษ A4 แนวตั้ง มาตราส่วนของเบราว์เซอร์ 100% ระยะขอบ 10–12 มม.
           (อย่าเลือก “Fit to page” เพราะจะทำให้จำนวนหน้าไม่ตรง — รายงานเป็นขาวดำล้วน
           จึงพิมพ์ได้ถูกต้องแม้ปิด “Background graphics”)
         </span>
@@ -465,7 +539,7 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
         ใช้ตาราง/สไตล์ชุดเดียวกับรายงาน เพื่อให้ความสูงของแถวที่วัดได้
         ตรงกับตอนพิมพ์จริง แล้วนำไปคำนวณการแบ่งหน้า
       */}
-      <div className="report-measure" aria-hidden="true" ref={measureRef}>
+      <div className="report-measure" aria-hidden="true" ref={measureRef} style={scaleStyle}>
         <div className="report-header" ref={measureHeaderRef}>
           {orgName ? <div className="report-org">{orgName}</div> : null}
           <h1 className="report-title">{reportTitle || 'ทะเบียนหนังสือรับ'}</h1>
@@ -512,10 +586,16 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
         </table>
 
         {includeSignature ? (
-          <div className="report-footer-note" ref={measureSignRef} style={{ textAlign: 'right', marginTop: '12mm' }}>
-            <div style={{ display: 'inline-block', textAlign: 'center', minWidth: '70mm' }}>
+          <div
+            className="report-footer-note"
+            ref={measureSignRef}
+            style={{ textAlign: 'right', marginTop: 'calc(12mm * var(--report-scale, 1))' }}
+          >
+            <div style={{ display: 'inline-block', textAlign: 'center', minWidth: 'calc(70mm * var(--report-scale, 1))' }}>
               <div>ลงชื่อ ....................................................</div>
-              <div style={{ marginTop: 4 }}>({signerName || '...........................................'})</div>
+              <div style={{ marginTop: 'calc(4px * var(--report-scale, 1))' }}>
+                ({signerName || '...........................................'})
+              </div>
               <div>{signerPosition || '...........................................'}</div>
             </div>
           </div>
@@ -526,7 +606,7 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
         </div>
       </div>
 
-      <div className="report-preview-wrap">
+      <div className="report-preview-wrap" style={scaleStyle}>
         {pages.map((pageRows, pageIndex) => (
           <div className="a4-page" key={`page-${pageIndex}`}>
             <header className="report-header">
@@ -584,10 +664,12 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
             </table>
 
             {pageIndex === pages.length - 1 && includeSignature ? (
-              <div className="report-footer-note" style={{ textAlign: 'right', marginTop: '12mm' }}>
-                <div style={{ display: 'inline-block', textAlign: 'center', minWidth: '70mm' }}>
+              <div className="report-footer-note" style={{ textAlign: 'right', marginTop: 'calc(12mm * var(--report-scale, 1))' }}>
+                <div style={{ display: 'inline-block', textAlign: 'center', minWidth: 'calc(70mm * var(--report-scale, 1))' }}>
                   <div>ลงชื่อ ....................................................</div>
-                  <div style={{ marginTop: 4 }}>({signerName || '...........................................'})</div>
+                  <div style={{ marginTop: 'calc(4px * var(--report-scale, 1))' }}>
+                    ({signerName || '...........................................'})
+                  </div>
                   <div>{signerPosition || '...........................................'}</div>
                 </div>
               </div>

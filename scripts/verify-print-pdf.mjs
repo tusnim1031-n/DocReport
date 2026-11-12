@@ -61,6 +61,17 @@ const SIZES = (process.env.SIZES ?? (fileRows ? String(fileRows) : '1,10,20,36,6
   .split(',')
   .map((value) => Number(value.trim()))
   .filter((value) => Number.isFinite(value) && value >= 0);
+
+/**
+ * SCALES=100,90,80,70,60,85 — ทดสอบมาตราส่วนเอกสารหลายค่าต่อหนึ่งขนาดข้อมูล
+ * (ถ้าไม่ระบุ จะทดสอบเฉพาะค่าเริ่มต้น 100% ตามเดิม)
+ */
+const SCALES = (process.env.SCALES ?? '')
+  .split(',')
+  .map((value) => value.trim())
+  .filter((value) => /^\d{2,3}$/.test(value) && Number(value) >= 50 && Number(value) <= 100);
+/** ตัวเลือกที่มีในกล่องเลือกโดยตรง (นอกนั้นต้องใช้โหมดกำหนดเอง) */
+const PRESET_SCALES = new Set(['100', '90', '80', '70', '60']);
 const MM_PX = 96 / 25.4;
 const CONTENT_LIMIT_PX = (297 - 10 - 10 - 4) * MM_PX; // ลบระยะขอบ + safety 4 มม.
 
@@ -226,6 +237,10 @@ const metricsScript = `(() => {
   return {
     pageCount: pages.length,
     pageInfo,
+    // ลำดับแถวทั้งรายงาน (ช่อง "ลำดับ") — ใช้ตรวจว่าครบทุกแถว ไม่ซ้ำ ไม่หาย
+    seq: pages.flatMap((page) =>
+      Array.from(page.querySelectorAll('tbody tr')).map((row) => Number(row.children[0].textContent)),
+    ),
     limit,
     contentWidth,
     expectedContentWidth: 186 * MM,
@@ -311,6 +326,48 @@ async function importFile(session, filePath) {
   await sleep(600);
 }
 
+/**
+ * เปลี่ยน "ขนาดเอกสาร" ผ่าน UI จริง (กล่องเลือก + ช่องกรอกกำหนดเอง)
+ * แล้วรอให้ระบบวัดความสูง/แบ่งหน้าใหม่เสร็จ — ใช้ native value setter + event
+ * แบบเดียวกับที่ React ฟัง (onChange ของ select = 'change', ของ input = 'input')
+ */
+async function setReportScale(session, scale) {
+  const preset = PRESET_SCALES.has(scale);
+  const selectOk = await evaluate(
+    session,
+    `(() => {
+      const select = document.querySelector('#report-scale-select');
+      if (!select) return false;
+      const setSelect = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
+      setSelect.call(select, ${JSON.stringify(preset ? scale : 'custom')});
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })()`,
+  );
+  if (!selectOk) throw new Error('ไม่พบกล่องเลือกขนาดเอกสาร #report-scale-select');
+
+  if (!preset) {
+    // รอ React แสดงช่องกรอกกำหนดเองก่อน (แสดงหลังเลือกโหมด "กำหนดเอง")
+    await sleep(300);
+    const inputOk = await evaluate(
+      session,
+      `(() => {
+        const input = document.querySelector('#report-scale-custom');
+        if (!input) return false;
+        const setInput = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+        setInput.call(input, ${JSON.stringify(scale)});
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      })()`,
+    );
+    if (!inputOk) throw new Error('ไม่พบช่องกรอกกำหนดเอง #report-scale-custom');
+  }
+
+  // รอให้ useLayoutEffect วัดความสูงใหม่และ React จัดหน้าเสร็จ
+  await sleep(700);
+}
+
 async function main() {
   const userDataDir = mkdtempSync(join(tmpdir(), 'docreport-cdp-'));
   const tempRoot = mkdtempSync(join(tmpdir(), 'docreport-pdf-'));
@@ -366,151 +423,192 @@ async function main() {
         await sleep(700);
       }
 
-      const metrics = await evaluate(session, metricsScript);
+      /*
+       * ค่าเริ่มต้น = 100% (ก่อนปรับ Scale) — ใช้เทียบว่าหลังย่อ Scale แล้ว
+       * จำนวนหน้าต้องไม่เพิ่มขึ้น และเมื่อกลับ 100% ต้องได้จำนวนหน้าเท่าเดิม
+       */
+      const baselinePages = (await evaluate(session, metricsScript)).pageCount;
+      const scaleSteps = SCALES.length > 0 ? SCALES : [null];
 
-      // --- ตรวจเงื่อนไขการพิมพ์ภายใต้สื่อ "print" จริง ---
-      await session.send('Emulation.setEmulatedMedia', { media: 'print' });
-      await sleep(250);
-      const printChecks = await evaluate(
-        session,
-        `(() => {
-          const pages = Array.from(document.querySelectorAll('.a4-page'));
-          const visible = (node) => {
-            if (!node) return false;
-            const style = getComputedStyle(node);
-            return style.display !== 'none' && style.visibility !== 'hidden';
-          };
-          const dateCells = pages.flatMap((page) =>
-            Array.from(page.querySelectorAll('tbody tr')).map((row) => {
-              const cells = Array.from(row.children).map((cell) => cell.textContent.trim());
-              return { documentDate: cells[3], receivedDate: cells[6], note: cells[7] };
-            }),
-          );
-          const badDates = dateCells.filter(
-            (cell) =>
-              (cell.documentDate && !/^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(cell.documentDate)) ||
-              (cell.receivedDate && !/^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(cell.receivedDate)),
-          );
-          const years = dateCells
-            .flatMap((cell) => [cell.documentDate, cell.receivedDate])
-            .filter(Boolean)
-            .map((value) => Number(value.slice(-4)));
-          return {
-            alertCount: document.querySelectorAll('.alert').length,
-            visibleAlerts: Array.from(document.querySelectorAll('.alert')).filter(visible).length,
-            measureVisible: visible(document.querySelector('.report-measure')),
-            bodyText: pages.map((page) => page.innerText).join('\\n'),
-            pages: pages.length,
-            headersPerPage: pages.filter((page) => page.querySelector('.report-header')).length,
-            tableHeadsPerPage: pages.filter((page) => page.querySelector('thead th')).length,
-            metaPerPage: pages.map((page) => page.querySelector('.report-meta').innerText.replace(/\\s+/g, ' ')),
-            emptyNoteCells: dateCells.filter((cell) => cell.note === '').length,
-            totalCells: dateCells.length,
-            badDates: badDates.slice(0, 3),
-            badYearCount: years.filter((year) => year < 2400 || year > 2700).length,
-            summaryVisible: /แทนที่ข้อมูลสำเร็จ|ก่อนนำเข้า|หลังนำเข้า/.test(
-              Array.from(document.querySelectorAll('.alert'))
-                .filter(visible)
-                .map((node) => node.innerText)
-                .join(' '),
-            ),
-            signaturePages: pages
-              .map((page, index) => (page.innerText.includes('ลงชื่อ') ? index : -1))
-              .filter((index) => index >= 0),
-          };
-        })()`,
-      );
-      await session.send('Emulation.setEmulatedMedia', { media: '' });
-      await sleep(150);
+      // วนตรวจทุก Scale (ไม่ได้ตั้ง SCALES = ตรวจเฉพาะค่าเริ่มต้น 100% เหมือนเดิม)
+      for (const scale of scaleSteps) {
+        if (scale !== null) {
+          await setReportScale(session, scale);
+        }
 
-      const metaOk = printChecks.metaPerPage.every((text, index) =>
-        text.includes(`หน้า ${index + 1} จาก ${printChecks.pages}`),
-      );
-      const signatureOk = process.env.SIGNATURE
-        ? printChecks.signaturePages.length === 1 &&
-          printChecks.signaturePages[0] === printChecks.pages - 1
-        : printChecks.signaturePages.length === 0;
-      const printOk =
-        printChecks.visibleAlerts === 0 &&
-        !printChecks.measureVisible &&
-        !printChecks.summaryVisible &&
-        !/⚠/.test(printChecks.bodyText) &&
-        !/\\d{1,2}:\\d{2}/.test(printChecks.bodyText) &&
-        printChecks.headersPerPage === printChecks.pages &&
-        printChecks.tableHeadsPerPage === printChecks.pages &&
-        metaOk &&
-        signatureOk &&
-        printChecks.emptyNoteCells === printChecks.totalCells &&
-        printChecks.badDates.length === 0 &&
-        printChecks.badYearCount === 0;
-      if (!printOk) failed += 1;
+        const metrics = await evaluate(session, metricsScript);
 
-      const overflowPages = metrics.pageInfo.filter((page) => page.content > metrics.limit + 0.5);
-      const emptyPages = metrics.pageInfo.filter((page) => page.rows === 0);
-      const totalRows = metrics.pageInfo.reduce((sum, page) => sum + page.rows, 0);
-      const underFilled = metrics.pageInfo
-        .slice(0, -1)
-        .filter((page) => page.content < metrics.limit * 0.6);
+        // --- ตรวจเงื่อนไขการพิมพ์ภายใต้สื่อ "print" จริง ---
+        await session.send('Emulation.setEmulatedMedia', { media: 'print' });
+        await sleep(250);
+        const printChecks = await evaluate(
+          session,
+          `(() => {
+            const pages = Array.from(document.querySelectorAll('.a4-page'));
+            const visible = (node) => {
+              if (!node) return false;
+              const style = getComputedStyle(node);
+              return style.display !== 'none' && style.visibility !== 'hidden';
+            };
+            const dateCells = pages.flatMap((page) =>
+              Array.from(page.querySelectorAll('tbody tr')).map((row) => {
+                const cells = Array.from(row.children).map((cell) => cell.textContent.trim());
+                return { documentDate: cells[3], receivedDate: cells[6], note: cells[7] };
+              }),
+            );
+            const badDates = dateCells.filter(
+              (cell) =>
+                (cell.documentDate && !/^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(cell.documentDate)) ||
+                (cell.receivedDate && !/^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(cell.receivedDate)),
+            );
+            const years = dateCells
+              .flatMap((cell) => [cell.documentDate, cell.receivedDate])
+              .filter(Boolean)
+              .map((value) => Number(value.slice(-4)));
+            return {
+              alertCount: document.querySelectorAll('.alert').length,
+              visibleAlerts: Array.from(document.querySelectorAll('.alert')).filter(visible).length,
+              measureVisible: visible(document.querySelector('.report-measure')),
+              bodyText: pages.map((page) => page.innerText).join('\\n'),
+              pages: pages.length,
+              headersPerPage: pages.filter((page) => page.querySelector('.report-header')).length,
+              tableHeadsPerPage: pages.filter((page) => page.querySelector('thead th')).length,
+              metaPerPage: pages.map((page) => page.querySelector('.report-meta').innerText.replace(/\\s+/g, ' ')),
+              emptyNoteCells: dateCells.filter((cell) => cell.note === '').length,
+              totalCells: dateCells.length,
+              badDates: badDates.slice(0, 3),
+              badYearCount: years.filter((year) => year < 2400 || year > 2700).length,
+              summaryVisible: /แทนที่ข้อมูลสำเร็จ|ก่อนนำเข้า|หลังนำเข้า/.test(
+                Array.from(document.querySelectorAll('.alert'))
+                  .filter(visible)
+                  .map((node) => node.innerText)
+                  .join(' '),
+              ),
+              signaturePages: pages
+                .map((page, index) => (page.innerText.includes('ลงชื่อ') ? index : -1))
+                .filter((index) => index >= 0),
+            };
+          })()`,
+        );
+        await session.send('Emulation.setEmulatedMedia', { media: '' });
+        await sleep(150);
 
-      const pdf = await session.send('Page.printToPDF', {
-        printBackground: true,
-        preferCSSPageSize: true,
-        marginTop: 0,
-        marginBottom: 0,
-        marginLeft: 0,
-        marginRight: 0,
-      });
-      const pdfBuffer = Buffer.from(pdf.data, 'base64');
-      const pdfPath = join(tempRoot, `report-${size}.pdf`);
-      writeFileSync(pdfPath, pdfBuffer);
-      const pdfPages = countPdfPages(pdfBuffer);
+        const metaOk = printChecks.metaPerPage.every((text, index) =>
+          text.includes(`หน้า ${index + 1} จาก ${printChecks.pages}`),
+        );
+        const signatureOk = process.env.SIGNATURE
+          ? printChecks.signaturePages.length === 1 &&
+            printChecks.signaturePages[0] === printChecks.pages - 1
+          : printChecks.signaturePages.length === 0;
+        const printOk =
+          printChecks.visibleAlerts === 0 &&
+          !printChecks.measureVisible &&
+          !printChecks.summaryVisible &&
+          !/⚠/.test(printChecks.bodyText) &&
+          !/\\d{1,2}:\\d{2}/.test(printChecks.bodyText) &&
+          printChecks.headersPerPage === printChecks.pages &&
+          printChecks.tableHeadsPerPage === printChecks.pages &&
+          metaOk &&
+          signatureOk &&
+          printChecks.emptyNoteCells === printChecks.totalCells &&
+          printChecks.badDates.length === 0 &&
+          printChecks.badYearCount === 0;
+        if (!printOk) failed += 1;
 
-      const rowCounts = metrics.pageInfo.map((page) => page.rows);
-      const ok =
-        totalRows === expectedRows &&
-        overflowPages.length === 0 &&
-        emptyPages.length === 0 &&
-        pdfPages === metrics.pageCount &&
-        printOk;
+        const overflowPages = metrics.pageInfo.filter((page) => page.content > metrics.limit + 0.5);
+        const emptyPages = metrics.pageInfo.filter((page) => page.rows === 0);
+        const totalRows = metrics.pageInfo.reduce((sum, page) => sum + page.rows, 0);
+        const underFilled = metrics.pageInfo
+          .slice(0, -1)
+          .filter((page) => page.content < metrics.limit * 0.6);
 
-      if (!ok) failed += 1;
+        const pdf = await session.send('Page.printToPDF', {
+          printBackground: true,
+          preferCSSPageSize: true,
+          marginTop: 0,
+          marginBottom: 0,
+          marginLeft: 0,
+          marginRight: 0,
+        });
+        const pdfBuffer = Buffer.from(pdf.data, 'base64');
+        const pdfPath = join(
+          tempRoot,
+          scale === null ? `report-${size}.pdf` : `report-${size}@${scale}.pdf`,
+        );
+        writeFileSync(pdfPath, pdfBuffer);
+        const pdfPages = countPdfPages(pdfBuffer);
 
-      results.push({
-        size: expectedRows,
-        pages: metrics.pageCount,
-        pdfPages,
-        totalRows,
-        rowCounts,
-        overflow: overflowPages.length,
-        emptyPages: emptyPages.length,
-        underFilled: underFilled.length,
-        maxContentMm: (Math.max(...metrics.pageInfo.map((page) => page.content)) / MM_PX).toFixed(1),
-        limitMm: (metrics.limit / MM_PX).toFixed(1),
-        printOk,
-        printChecks,
-        ok,
-        pdfPath,
-      });
+        const rowCounts = metrics.pageInfo.map((page) => page.rows);
+        // ลำดับ 1..N ต่อเนื่องทั้งรายงาน — ไม่มีรายการซ้ำ/หายจากการแบ่งหน้า
+        const seqOk =
+          metrics.seq.length === expectedRows &&
+          metrics.seq.every((value, index) => value === index + 1);
+        // Scale ที่ย่อลงจริง (≤80% สำหรับข้อมูล ≥36 แถว) ต้องทำให้จำนวนหน้าน้อยกว่าตอน 100%
+        const strictTrend = scale !== null && Number(scale) <= 80 && expectedRows >= 36;
+        const pageTrendOk =
+          scale === null ||
+          (strictTrend ? metrics.pageCount < baselinePages : metrics.pageCount <= baselinePages);
+        const ok =
+          totalRows === expectedRows &&
+          overflowPages.length === 0 &&
+          emptyPages.length === 0 &&
+          pdfPages === metrics.pageCount &&
+          seqOk &&
+          pageTrendOk &&
+          printOk;
 
-      console.log(
-        `n=${String(expectedRows).padStart(3)} | UI ${String(metrics.pageCount).padStart(2)} หน้า | PDF ${String(
+        if (!ok) failed += 1;
+
+        results.push({
+          size: expectedRows,
+          scale,
+          pages: metrics.pageCount,
           pdfPages,
-        ).padStart(2)} หน้า | แถว ${String(totalRows).padStart(3)}/${String(expectedRows).padEnd(3)} | สูงสุด ${(
-          Math.max(...metrics.pageInfo.map((page) => page.content)) / MM_PX
-        ).toFixed(1)}/${(metrics.limit / MM_PX).toFixed(0)} มม. | ล้น ${overflowPages.length} | หน้าว่าง ${
-          emptyPages.length
-        } | ${ok ? 'PASS' : 'FAIL'}`,
-      );
-      console.log(`        แถวต่อหน้า: ${rowCounts.join(', ')}`);
-      console.log(
-        `        ตรวจการพิมพ์: ซ่อน alert ${printChecks.visibleAlerts === 0 ? 'PASS' : 'FAIL'} | ซ่อนตัววัด ${
-          printChecks.measureVisible ? 'FAIL' : 'PASS'
-        } | หัวตารางซ้ำ ${printChecks.tableHeadsPerPage}/${printChecks.pages} | เลขหน้า ${
-          metaOk ? 'PASS' : 'FAIL'
-        } | หมายเหตุว่าง ${printChecks.emptyNoteCells}/${printChecks.totalCells} | วันที่ ${
-          printChecks.badDates.length === 0 && printChecks.badYearCount === 0 ? 'PASS' : 'FAIL'
-        }`,
-      );
+          totalRows,
+          rowCounts,
+          overflow: overflowPages.length,
+          emptyPages: emptyPages.length,
+          underFilled: underFilled.length,
+          maxContentMm: (Math.max(...metrics.pageInfo.map((page) => page.content)) / MM_PX).toFixed(1),
+          limitMm: (metrics.limit / MM_PX).toFixed(1),
+          printOk,
+          printChecks,
+          ok,
+          pdfPath,
+        });
+
+        const scaleLabel = scale === null ? '100%' : `${scale}%`;
+        console.log(
+          `n=${String(expectedRows).padStart(3)} | scale ${scaleLabel} | UI ${String(metrics.pageCount).padStart(2)} หน้า | PDF ${String(
+            pdfPages,
+          ).padStart(2)} หน้า | แถว ${String(totalRows).padStart(3)}/${String(expectedRows).padEnd(3)} | สูงสุด ${(
+            Math.max(...metrics.pageInfo.map((page) => page.content)) / MM_PX
+          ).toFixed(1)}/${(metrics.limit / MM_PX).toFixed(0)} มม. | ล้น ${overflowPages.length} | หน้าว่าง ${
+            emptyPages.length
+          } | ${ok ? 'PASS' : 'FAIL'}`,
+        );
+        console.log(`        แถวต่อหน้า: ${rowCounts.join(', ')}`);
+        console.log(
+          `        ตรวจการพิมพ์: ซ่อน alert ${printChecks.visibleAlerts === 0 ? 'PASS' : 'FAIL'} | ซ่อนตัววัด ${
+            printChecks.measureVisible ? 'FAIL' : 'PASS'
+          } | หัวตารางซ้ำ ${printChecks.tableHeadsPerPage}/${printChecks.pages} | เลขหน้า ${
+            metaOk ? 'PASS' : 'FAIL'
+          } | หมายเหตุว่าง ${printChecks.emptyNoteCells}/${printChecks.totalCells} | วันที่ ${
+            printChecks.badDates.length === 0 && printChecks.badYearCount === 0 ? 'PASS' : 'FAIL'
+          }`,
+        );
+      } // end for (const scale ...)
+
+      // ทดสอบการคืนค่า: หลังลองทุก Scale ต้องกลับมาเป็น 100% แล้วได้จำนวนหน้าเท่าเดิม
+      if (SCALES.length > 0) {
+        await setReportScale(session, '100');
+        const resetMetrics = await evaluate(session, metricsScript);
+        const resetOk = resetMetrics.pageCount === baselinePages;
+        if (!resetOk) failed += 1;
+        console.log(
+          `        คืน 100%: ${baselinePages} → ${resetMetrics.pageCount} หน้า | ${resetOk ? 'PASS' : 'FAIL'}`,
+        );
+      }
     }
 
     // ตรวจ CSS: ความกว้างตารางต้องเท่ากับ 186 มม. และตัววัดต้องถูกซ่อน

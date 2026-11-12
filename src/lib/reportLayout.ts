@@ -151,8 +151,17 @@ export function rowCountsPerPage(pages: PageSlice[]): number[] {
 }
 
 /**
+ * ความหนาเส้นขอบตารางด้านบน/ล่าง (px) ที่ `getBoundingClientRect` ของ
+ * `tr`/`thead` ไม่รวม (border-collapse แบ่งเส้นขอบครึ่งหนึ่งไว้นอกกล่อง)
+ * ถ้าไม่หัก หน้าที่แถวแน่นเกือบเต็ม capacity (ไม่ถูกยืดด้วย justify)
+ * จะล้นพื้นที่จริง ~0.3 มม. ได้
+ */
+export const TABLE_BORDER_ALLOWANCE_PX = 1;
+
+/**
  * คำนวณพื้นที่เหลือสำหรับแถวข้อมูลในแต่ละหน้า
  * capacity = ความสูงพื้นที่พิมพ์ − หัวรายงาน − หัวตาราง − ส่วนท้าย − (ช่องลงนาม)
+ *            − เส้นขอบตาราง (ส่วนที่การวัดความสูงของแถวไม่รวม)
  */
 export function computeRowCapacityPx(params: {
   headerHeight: number;
@@ -165,5 +174,47 @@ export function computeRowCapacityPx(params: {
   const safety = mmToPx(params.safetyMm ?? PAGINATION_SAFETY_MM);
   const total = mmToPx(CONTENT_HEIGHT_MM) - safety;
   const trailing = Math.max(0, params.trailingHeight ?? 0);
-  return Math.max(1, total - headerHeight - tableHeadHeight - footerHeight - trailing);
+  return Math.max(
+    1,
+    total - headerHeight - tableHeadHeight - footerHeight - trailing - TABLE_BORDER_ALLOWANCE_PX,
+  );
+}
+
+/* =========================================================================
+   มาตราส่วนเอกสาร (Print Scaling) — ย่อ/ขยายตัวอักษรและระยะห่างของรายงาน
+   วิธีใช้: CSS variable --report-scale (เชิงเลข 0.5–1) คูณกับ calc() ในสไตล์
+   ของส่วนรายงานทุกจุด — เป็น CSS ธรรมดาจึงมีผลทั้งบนจอและตอนพิมพ์จริง
+   (ไม่ใช้ transform: scale() ที่ไม่กระทบการแบ่งหน้า และไม่ใช้ zoom
+   ซึ่งจากการทดสอบ Chrome ไม่ถูกนำไปใช้ตอน printToPDF)
+   ========================================================================= */
+
+/** ขอบล่างของเปอร์เซ็นต์ที่ผู้ใช้กำหนดเองได้ (%) */
+export const REPORT_SCALE_MIN = 50;
+
+/** ขอบบนของเปอร์เซ็นต์ (%) */
+export const REPORT_SCALE_MAX = 100;
+
+/** ค่าเริ่มต้น = ขนาดปกติ */
+export const REPORT_SCALE_DEFAULT = 100;
+
+/** ตัวเลือกสำเร็จรูปในกล่องเลือก (เรียงจากใหญ่ไปเล็ก) */
+export const REPORT_SCALE_PRESETS = [100, 90, 80, 70, 60] as const;
+
+/** จำกัดค่าให้อยู่ในช่วง 50–100 (ปัดเป็นจำนวนเต็ม) */
+export function clampScalePercent(value: number): number {
+  if (!Number.isFinite(value)) return REPORT_SCALE_DEFAULT;
+  return Math.min(REPORT_SCALE_MAX, Math.max(REPORT_SCALE_MIN, Math.round(value)));
+}
+
+/**
+ * แปลงข้อความจากช่องกรอกกำหนดเองเป็นเปอร์เซ็นต์
+ * - คืนค่าที่จำกัดช่วงแล้ว เช่น "45" → 50, "150" → 100, "85" → 85
+ * - คืน null เมื่อว่างหรือไม่ใช่ตัวเลข (ผู้เรียกต้องตัดสินใจค่าสำรองเอง)
+ */
+export function parseScalePercent(text: string): number | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  const value = Number(trimmed);
+  if (!Number.isFinite(value)) return null;
+  return clampScalePercent(value);
 }
