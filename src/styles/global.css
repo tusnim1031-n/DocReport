@@ -1,7 +1,26 @@
 /* ==========================================================================
    ระบบทะเบียนหนังสือ — Design System
-   Modern Office Workspace • โทนกรมท่า–ขาว • ฟอนต์ Sarabun (บันเดิลในโปรเจกต์)
+   Modern Office Workspace • โทนกรมท่า–ขาว • ฟอนต์ Sarabun (ส่วน UI ของแอป)
+   เอกสารรายงานพิมพ์ด้วยฟอนต์ TH Sarabun New (บันเดิลใน src/fonts)
    ========================================================================== */
+
+/* --------------------------- ฟอนต์เอกสารรายงาน ----------------------------- */
+/* TH Sarabun New — ฟอนต์ทางการราชการ (Regular/Bold ตามข้อกำหนด) */
+@font-face {
+  font-family: 'TH Sarabun New';
+  src: url('../fonts/THSarabunNew-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'TH Sarabun New';
+  src: url('../fonts/THSarabunNew-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: block;
+}
 
 /* ------------------------------- Design tokens ------------------------------ */
 :root {
@@ -15,6 +34,14 @@
   --navy-300: #9bb8dc;
   --navy-100: #e2ecf8;
   --navy-50: #f2f7fd;
+
+  /* สีเอกสารรายงาน (Modern Thai Government Document) */
+  --rep-navy: #17365d;
+  --rep-deep: #24476b;
+  --rep-light: #eaf1f8;
+  --rep-gray: #f4f6f8;
+  --rep-text: #263238;
+  --rep-line: #c9d5e2;
 
   /* สีเน้น (teal) — ใช้เฉพาะการกระทำสำคัญ */
   --accent-700: #0f6e63;
@@ -2087,7 +2114,16 @@ textarea {
   z-index: -1;
 }
 
-/* โทนสีรายงาน: มินิมอล โมโนโครม (ขาว–ดำ–เทา neutral ไม่อมฟ้า)
+/* เอกสารรายงานทั้งฉบับ (ทั้งพื้นที่วัดและหน้า preview) ใช้ TH Sarabun New */
+.a4-page,
+.report-measure {
+  font-family: 'TH Sarabun New', 'Leelawadee UI', 'Tahoma', sans-serif;
+}
+
+/* โทนสีรายงาน: Modern Thai Government Document (กรมท่า/ขาว/เทาอ่อน)
+ * - ฟอนต์หลักของเอกสาร = TH Sarabun New (Regular/Bold เท่านั้น)
+ * - สี: Navy #17365D • Deep #24476B • Light Blue #EAF1F8 • Light Gray #F4F6F8
+ *       White #FFFFFF • Text #263238
  *
  * Print Scaling: ทุกค่าความสูง/ฟอนต์/ระยะห่างด้านล่างคูณด้วย --report-scale
  * (ตัวเลข 0.5–1 จากกล่องเลือก "ขนาดเอกสาร") เพื่อย่อเนื้อหาจริงทั้งจอและพิมพ์
@@ -2117,87 +2153,125 @@ textarea {
    * collapse อยู่แล้ว แต่ในพื้นที่วัด (.report-measure เป็น block ธรรมดา)
    * margin จะหลุดออก ทำให้ header ที่วัดได้สั้นกว่าของจริง ~0.4 มม.
    * → capacity คลาดเคลื่อนและบางหน้าล้นตอน Scale ต่ำ
+   * ห้ามเปลี่ยนค่า display นี้เด็ดขาด (regression ที่เคยแก้แล้ว)
    */
   display: flow-root;
-  margin-bottom: calc(5mm * var(--report-scale, 1));
   text-align: center;
-  color: #111111;
+  color: var(--rep-text);
+  padding-bottom: calc(2.5mm * var(--report-scale, 1));
+  /* แถบเส้นใต้หัวเอกสาร — เส้นเรียบสีกรมท่าตามธีมเอกสารราชการ */
+  border-bottom: 2px solid var(--rep-navy);
+  margin-bottom: calc(4mm * var(--report-scale, 1));
 }
 
 .report-org {
-  font-size: calc(12.5px * var(--report-scale, 1));
-  font-weight: 600;
-  color: #444444;
+  font-size: calc(18pt * var(--report-scale, 1));
+  font-weight: 700;
+  color: var(--rep-navy);
+  line-height: 1.3;
 }
 
 .report-title {
-  font-size: calc(16px * var(--report-scale, 1));
+  font-size: calc(26pt * var(--report-scale, 1));
   font-weight: 700;
-  color: #111111;
-  margin: calc(2px * var(--report-scale, 1)) 0 0;
+  color: var(--rep-navy);
+  line-height: 1.25;
+  margin: calc(1mm * var(--report-scale, 1)) 0 0;
 }
 
 .report-range {
-  font-size: calc(11px * var(--report-scale, 1));
-  color: #555555;
-  margin-top: calc(2px * var(--report-scale, 1));
-}
-
-.report-meta {
-  display: flex;
-  justify-content: space-between;
-  gap: calc(10px * var(--report-scale, 1));
-  margin-top: calc(3mm * var(--report-scale, 1));
-  padding-top: calc(3px * var(--report-scale, 1));
-  font-size: calc(10px * var(--report-scale, 1));
-  color: #333333;
-  border-top: 1px solid #111111;
-}
-
-.report-meta span:last-child {
-  font-weight: 700;
-  color: #111111;
+  font-size: calc(16pt * var(--report-scale, 1));
+  color: var(--rep-text);
+  line-height: 1.35;
+  margin-top: calc(1.5mm * var(--report-scale, 1));
 }
 
 /*
- * ตารางรายงาน: เส้นเทาอ่อนทั่วทั้งตาราง หัวตารางเส้นดำหนา —
- * ไม่มีพื้นหลังสีเลย จึงพิมพ์ถูกต้องแม้ปิด "Background graphics"
+ * ส่วนสรุปข้อมูล — แสดงเฉพาะหน้าแรก ตัวเลขทั้งหมดมาจากข้อมูลรายงานจริง
+ * ความสูงของบล็อกนี้ (รวม margin-bottom) ถูกบวกไปที่แถวแรกตอนคำนวณแบ่งหน้า
+ * เพื่อไม่ให้หน้าแรกล้นพื้นที่พิมพ์ (ดู ReportStep: measureSummaryRef)
+ */
+.report-summary {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: calc(8mm * var(--report-scale, 1));
+  background: var(--rep-light);
+  border: 1px solid var(--rep-line);
+  padding: calc(3mm * var(--report-scale, 1)) calc(4mm * var(--report-scale, 1));
+  margin-bottom: calc(4mm * var(--report-scale, 1));
+  break-inside: avoid;
+}
+
+.report-summary .summary-stat {
+  text-align: center;
+}
+
+.report-summary .summary-value {
+  display: block;
+  font-size: calc(24pt * var(--report-scale, 1));
+  font-weight: 700;
+  color: var(--rep-navy);
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+.report-summary .summary-label {
+  display: block;
+  font-size: calc(14pt * var(--report-scale, 1));
+  color: var(--rep-text);
+  line-height: 1.3;
+  margin-top: calc(1px * var(--report-scale, 1));
+}
+
+/*
+ * ตารางรายงาน — ธีมราชการสมัยใหม่:
+ * หัวตารางพื้นกรมท่า ตัวอักษรขาว Bold 16pt / เนื้อหา Regular 12pt
+ * แถวสลับสีขาว–เทาอ่อน เส้นบางสีฟ้าเทา (การพิมพ์ต้องเปิด Background graphics)
  */
 .report-table {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
-  font-size: calc(9.5pt * var(--report-scale, 1));
-  color: #111111;
+  font-size: calc(12pt * var(--report-scale, 1));
+  color: var(--rep-text);
 }
 
 .report-table thead th {
-  padding: calc(3.5px * var(--report-scale, 1)) calc(4px * var(--report-scale, 1));
-  border: 1px solid #111111;
-  border-top-width: 1.5px;
-  border-bottom-width: 1.5px;
-  background: transparent;
-  font-size: calc(9.5pt * var(--report-scale, 1));
+  padding: calc(4px * var(--report-scale, 1)) calc(5px * var(--report-scale, 1));
+  border: 1px solid var(--rep-deep);
+  background: var(--rep-navy);
+  font-size: calc(16pt * var(--report-scale, 1));
   font-weight: 700;
-  color: #111111;
+  color: var(--white);
   text-align: center;
   vertical-align: middle;
+  line-height: 1.3;
 }
 
 .report-table tbody td {
   /*
-   * padding ตั้งต้น (3.5px) ย่อตาม scale เพื่อให้แถวเล็กลงจริง
+   * padding ตั้งต้น (4px) ย่อตาม scale เพื่อให้แถวเล็กลงจริง
    * แต่ --report-row-pad-extra (ที่ยืดตารางเต็มหน้า) คงเป็น px จริงตามเดิม
    * เพราะคำนวณมาจากพื้นที่เหลือบนกระดาษเป็นหน่วยมม. อยู่แล้ว
    */
-  padding: calc(3.5px * var(--report-scale, 1) + var(--report-row-pad-extra, 0px))
-    calc(4px * var(--report-scale, 1));
-  border: 1px solid #a0a0a0;
-  color: #111111;
+  padding: calc(4px * var(--report-scale, 1) + var(--report-row-pad-extra, 0px))
+    calc(5px * var(--report-scale, 1));
+  border: 1px solid var(--rep-line);
+  color: var(--rep-text);
   vertical-align: top;
   overflow-wrap: break-word;
   word-break: normal;
   line-height: 1.4;
+}
+
+/* แถวสลับสี: คี่ = ขาว, คู่ = เทาอ่อน */
+.report-table tbody tr:nth-child(odd) td {
+  background: var(--white);
+}
+
+.report-table tbody tr:nth-child(even) td {
+  background: var(--rep-gray);
 }
 
 .report-table .col-center {
@@ -2208,9 +2282,31 @@ textarea {
 .report-footer-note {
   margin-top: auto;
   padding-top: calc(3mm * var(--report-scale, 1));
-  font-size: calc(9.5px * var(--report-scale, 1));
-  color: #666666;
-  text-align: center;
+  font-size: calc(14pt * var(--report-scale, 1));
+  color: var(--rep-text);
+  line-height: 1.35;
+}
+
+/*
+ * แถบท้ายทุกหน้า — ข้อความพิมพ์ (ซ้าย) + เลขหน้า X จาก Y (ขวา)
+ * จัดตำแหน่งสม่ำเสมอทุกหน้าด้วย flex ชั้นเดียวกัน ไม่ทับข้อมูล
+ * ( margin-top: auto ดันลงท้ายหน้าตอนดูบนจอ ส่วนตอนพิมพ์เนื้อหาถูก
+ *   แบ่งหน้าให้พอดีพื้นที่จริงอยู่แล้ว )
+ */
+.report-footer-note.page-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: calc(8mm * var(--report-scale, 1));
+  border-top: 1px solid var(--rep-line);
+  padding-top: calc(2.5mm * var(--report-scale, 1));
+}
+
+.report-footer-note.page-foot .report-page-no {
+  font-weight: 700;
+  color: var(--rep-navy);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 /* --------------------------------- Footer --------------------------------- */
@@ -2366,17 +2462,24 @@ textarea {
    * ใช้พื้นที่กระดาษจริงจาก @page (ระยะขอบ 10/12 มม.)
    * แต่ละ .a4-page ถูกแบ่งเนื้อหามาแล้วให้สูงไม่เกินพื้นที่พิมพ์จริง
    * จึงไม่เกิดการล้นไปหน้าใหม่ซ้ำหรือหน้าว่าง
+   *
+   * flex + min-height: 276มม. — คงการวางตัวแบบตอนดูบนจอ (footer ถูกดันลง
+   * ท้ายหน้าด้วย margin-top: auto) ให้ PDF ตรงกับ preview เป๊ะ
+   * และเลขหน้า "หน้า X จาก Y" อยู่ตำแหน่งเดียวกันทุกหน้า
+   * ค่า 276มม. ต้องน้อยกว่าพื้นที่พิมพ์จริง (297 − 10 − 10 = 277มม.) เสมอ
+   * เพื่อกันเศษทศนิยมดันล้นไปสร้างหน้าว่าง (capacity จองเผื่อไว้ 4มม. อยู่แล้ว)
    */
   .a4-page {
     width: auto;
-    min-height: 0;
+    min-height: 276mm;
     max-height: none;
     padding: 0;
     margin: 0;
     border: 0;
     border-radius: 0;
     box-shadow: none;
-    display: block;
+    display: flex;
+    flex-direction: column;
     page-break-after: always;
     break-after: page;
   }
@@ -2401,21 +2504,16 @@ textarea {
   }
 
   /*
-   * หัวตารางเป็นเส้นดำล้วน ไม่มีพื้นหลังสี —
-   * ตัดคำสั่ง background/print-color-adjust เดิมออกเพื่อให้ผลลัพธ์เหมือนกันทุกเครื่อง
-   * ฟอนต์ต้องคูณ --report-scale เหมือนตอนบนจอ (ถ้าคง 9.5pt ตายตัว
-   * หัวตารางจะใหญ่กว่าเนื้อหาตอนที่ผู้ใช้ย่อเอกสาร)
+   * หัวตาราง/เนื้อหา/แถบสลับสีใช้สไตล์จากข้างบนเลย (คูณ --report-scale
+   * และพื้นกรมท่า/ตัวขาว) — ห้ามประกาศ background: transparent ซ้ำ
+   * การพิมพ์จากเบราว์เซอร์ต้องเปิด "Background graphics"
+   * เพื่อให้หัวตารางสีกรมท่าและแถบสรุปแสดงครบ (printToPDF ใช้ printBackground: true)
    */
-  .report-table thead th {
-    font-size: calc(9.5pt * var(--report-scale, 1));
-    font-weight: 700;
-    color: #111111;
-    background: transparent;
-  }
 
-  .report-table tbody td {
-    font-size: calc(9.5pt * var(--report-scale, 1));
-    color: #111111;
+  /* กันส่วนสรุปข้อมูลถูกตัดข้ามหน้า */
+  .report-summary {
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 
   /* กันการตัดแถวกลางคัน (แต่ละแถวถูกวัดความสูงและจัดลงหน้าให้พอดีแล้ว) */

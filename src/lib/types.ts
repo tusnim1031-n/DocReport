@@ -28,17 +28,20 @@ export type RegisterRow = {
 };
 
 /**
- * ความกว้างคอลัมน์ (มม.) — ผลรวม 176 มม. + คอลัมน์ "ลำดับ" 10 มม. = 186 มม.
+ * ความกว้างคอลัมน์ (มม.) — ผลรวม 175 มม. + คอลัมน์ "ลำดับ" 11 มม. = 186 มม.
  * เท่ากับพื้นที่พิมพ์จริงของ A4 (210 − 12 − 12) พอดี จึงไม่มีการย่อ/ขยายคอลัมน์
+ * จัดตามข้อมูลจริง: วันที่/ลำดับพอดีบรรทัดเดียวที่ฟอนต์ 12pt,
+ * "หมายเหตุ" กว้างพอสำหรับหัวตาราง 16pt และ "จาก"/"เรื่อง" ได้พื้นที่มากสุด
+ * เพราะเป็นข้อความยาวที่ทำให้แถวสูง
  */
 export const REPORT_COLUMNS = [
-  { key: 'receiveNo', label: 'เลขรับ', widthMm: 17 },
-  { key: 'documentNo', label: 'ที่', widthMm: 21 },
-  { key: 'documentDate', label: 'ลงวันที่', widthMm: 21 },
-  { key: 'from', label: 'จาก', widthMm: 29 },
-  { key: 'subject', label: 'เรื่อง', widthMm: 49 },
-  { key: 'receivedDate', label: 'วันที่รับ', widthMm: 21 },
-  { key: 'note', label: 'หมายเหตุ', widthMm: 18 },
+  { key: 'receiveNo', label: 'เลขรับ', widthMm: 15 },
+  { key: 'documentNo', label: 'ที่', widthMm: 20 },
+  { key: 'documentDate', label: 'ลงวันที่', widthMm: 22 },
+  { key: 'from', label: 'จาก', widthMm: 32 },
+  { key: 'subject', label: 'เรื่อง', widthMm: 47 },
+  { key: 'receivedDate', label: 'วันที่รับ', widthMm: 22 },
+  { key: 'note', label: 'หมายเหตุ', widthMm: 17 },
 ] as const;
 
 export type ReportColumnKey = (typeof REPORT_COLUMNS)[number]['key'];

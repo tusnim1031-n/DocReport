@@ -1,7 +1,7 @@
 /**
  * ตรวจเลย์เอาต์ไฟล์ PDF รายงานที่พิมพ์ออกมาจริง
- * - จำนวนหน้าจริงตรงกับข้อความ "หน้า X จาก Y" หรือไม่
- * - ทุกหน้ามีหัวรายงาน/หัวตารางหรือไม่ (หน้าแท้ที่เกิดจากการล้นจะไม่มีหัว)
+ * - จำนวนหน้าจริงตรงกับข้อความ "หน้า X จาก Y" ที่แถบท้ายหรือไม่
+ * - ทุกหน้ามีหัวตารางซ้ำหรือไม่ (หน้าแท้ที่เกิดจากการล้นจะไม่มีหัวตาราง)
  * - เลขลำดับ (คอลัมน์แรก) ต่อเนื่อง 1..N ครบทุกแถว ไม่ขาด ไม่ซ้ำ
  * - รายงานช่องว่างล่างหน้าที่มากผิดปกติ
  *
@@ -27,11 +27,19 @@ if (!existsSync(pdfjsPath)) {
 const pdfjs = await import(pathToFileURL(pdfjsPath).href);
 
 const PT_PER_MM = 72 / 25.4;
-const A4_H = 297 * PT_PER_MM;
 const MARGIN_MM = 10;
-/** คอลัมน์ "ลำดับ" เริ่มที่ระยะขอบซ้าย 12 มม. กว้าง 10 มม. (1 มม. = 2.8346 pt) */
+/**
+ * คอลัมน์ "ลำดับ" เริ่มที่ระยะขอบซ้าย 12 มม. กว้าง 11 มม. (1 มม. = 2.8346 pt)
+ * ค้นเลขลำดับในช่วง x ถึง 24 มม. — กันเลขรับ (คอลัมน์ถัดไป เริ่มที่ 23 มม.)
+ * ซึ่งจัดกึ่งกลางแล้วอยู่ที่ ~25 มม. ขึ้นไปหลุดเข้ามา
+ */
 const INDEX_X_MIN = 12 * PT_PER_MM - 1;
 const INDEX_X_MAX = 22 * PT_PER_MM + 2;
+/**
+ * แถบท้ายหน้า (footer) — เลขหน้า "หน้า X จาก Y" อยู่ชิดขอบล่างกระดาษ
+ * ค้นในช่วง y ต่ำกว่าขอบล่าง + ~20 มม. (ต่ำกว่าเนื้อตารางเสมอ ~20.5 มม.)
+ */
+const FOOTER_LABEL_MAX_Y = MARGIN_MM * PT_PER_MM + 27;
 
 let failed = 0;
 
@@ -75,13 +83,21 @@ for (const file of files) {
       }))
       .sort((a, b) => b.y - a.y);
 
-    const headerText = items
-      .filter((item) => item.y > A4_H - MARGIN_MM * PT_PER_MM - 160)
-      .sort((a, b) => b.y - a.y || a.x - b.x)
+    // เลขหน้า "หน้า X จาก Y" อยู่ที่แถบท้ายทุกหน้า (footer ด้านล่าง)
+    const footerText = items
+      .filter((item) => item.y < FOOTER_LABEL_MAX_Y)
+      .sort((a, b) => a.y - b.y || a.x - b.x)
       .map((item) => item.text)
       .join('')
       .replace(/\s+/g, '');
-    const labelMatch = headerText.match(/หน้า(\d+)จาก(\d+)/);
+    /*
+     * ฟอนต์ TH Sarabun New มี glyph ซ้ำสำหรับ encoding ภาษาไทยแบบเก่า (PUA)
+     * ตอน Chrome สร้าง PDF วรรณยุกต์/สระบางตัวจึงฝังเป็นรหัส PUA (เช่น U+F70B = ้)
+     * แทน Unicode มาตรฐาน หรือหายไปจาก text layer ทั้งที่ "สายตา" แสดงถูกต้อง —
+     * จึงยอมรับวรรณยุกต์ได้ทุกรูปแบบ (มาตรฐาน / PUA / ไม่มี) ตอนจับคู่
+     */
+    const THAI_MARK = '[\u0E47-\u0E4D\uF700-\uF8FF]?';
+    const labelMatch = footerText.match(new RegExp(`หน${THAI_MARK}า(\\d+)จ${THAI_MARK}าก(\\d+)`));
 
     // เลขลำดับ: ข้อความตัวเลขล้วนในช่วง x ของคอลัมน์แรก
     const indices = items
@@ -107,7 +123,7 @@ for (const file of files) {
   const problems = [];
   const missingHeader = pages.filter((page) => !page.hasHeader).map((page) => page.page);
   if (missingHeader.length > 0) {
-    problems.push(`ไม่พบหัวรายงาน/เลขหน้าในหน้า ${missingHeader.join(', ')}`);
+    problems.push(`ไม่พบเลขหน้าในหน้า ${missingHeader.join(', ')}`);
   }
 
   const wrongTotal = pages.filter((page) => page.label && page.label.total !== doc.numPages);
@@ -160,7 +176,7 @@ for (const file of files) {
 
   const status = problems.length === 0 ? 'PASS' : 'FAIL';
   console.log(`\n${status}  ${file}`);
-  console.log(`      ${doc.numPages} หน้า | ${allIndices.length} แถว | หัวรายงานครบ ${
+  console.log(`      ${doc.numPages} หน้า | ${allIndices.length} แถว | เลขหน้าครบ ${
     pages.filter((page) => page.hasHeader).length
   }/${doc.numPages} | หัวตารางครบ ${pages.filter((page) => page.hasTableHead).length}/${doc.numPages}`);
   console.log(

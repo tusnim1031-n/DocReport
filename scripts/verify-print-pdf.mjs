@@ -211,6 +211,12 @@ const metricsScript = `(() => {
     const headerHeight =
       header.getBoundingClientRect().height +
       (parseFloat(getComputedStyle(header).marginBottom) || 0);
+    // ส่วนสรุปข้อมูล (หน้าแรกเท่านั้น) ต้องนับรวมด้วย ไม่งั้นตรวจการล้นพลาด
+    const summary = page.querySelector('.report-summary');
+    const summaryHeight = summary
+      ? summary.getBoundingClientRect().height +
+        (parseFloat(getComputedStyle(summary).marginBottom) || 0)
+      : 0;
     const tableHeight = table.getBoundingClientRect().height;
     const footerHeight = Array.from(page.querySelectorAll('.report-footer-note')).reduce(
       (sum, node) => {
@@ -224,9 +230,10 @@ const metricsScript = `(() => {
     return {
       rows: table.querySelectorAll('tbody tr').length,
       headerHeight,
+      summaryHeight,
       tableHeight,
       footerHeight,
-      content: headerHeight + tableHeight + footerHeight,
+      content: headerHeight + summaryHeight + tableHeight + footerHeight,
       minRow: cells.length ? Math.min(...cells) : 0,
       maxRow: cells.length ? Math.max(...cells) : 0,
       filledWidth: table.getBoundingClientRect().width,
@@ -250,7 +257,7 @@ const metricsScript = `(() => {
       const style = getComputedStyle(node);
       return style.visibility === 'hidden' || style.display === 'none' ? 'hidden' : 'visible';
     })(),
-    meta: pages[0] ? pages[0].querySelector('.report-meta').innerText : '',
+    meta: (pages[0]?.querySelector('.report-summary')?.innerText ?? '').replace(/\s+/g, ' '),
     url: location.href,
   };
 })()`;
@@ -473,7 +480,9 @@ async function main() {
               pages: pages.length,
               headersPerPage: pages.filter((page) => page.querySelector('.report-header')).length,
               tableHeadsPerPage: pages.filter((page) => page.querySelector('thead th')).length,
-              metaPerPage: pages.map((page) => page.querySelector('.report-meta').innerText.replace(/\\s+/g, ' ')),
+              metaPerPage: pages.map((page) =>
+                (page.querySelector('.report-page-no')?.innerText ?? '').replace(/\\s+/g, ' '),
+              ),
               emptyNoteCells: dateCells.filter((cell) => cell.note === '').length,
               totalCells: dateCells.length,
               badDates: badDates.slice(0, 3),

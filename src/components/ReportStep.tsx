@@ -2,9 +2,11 @@
  * หน้าสร้างรายงาน — ตั้งค่า ดูตัวอย่าง และพิมพ์ A4 แนวตั้ง / บันทึกเป็น PDF
  * - คอลัมน์ 7 ช่องตามลำดับบังคับ
  * - แสดงเฉพาะวันที่ ไม่แสดงเวลา และไม่มีเครื่องหมายเตือน ⚠
+ * - ธีมเอกสารราชการสมัยใหม่ (กรมท่า) ฟอนต์ TH Sarabun New
+ * - หัวเอกสาร + ส่วนสรุปข้อมูล (ตัวเลขจริง) + ตาราง + แถบท้ายมีเลขหน้า X จาก Y
  * - องค์ประกอบของเว็บไซต์ (Sidebar/ปุ่ม/Dashboard) ถูกซ่อนด้วย .no-print
  */
-import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Ref } from 'react';
 import { Alert, Badge, EmptyState } from './ui';
 import {
   IconDownload,
@@ -48,6 +50,11 @@ type MeasuredLayout = {
   capacityPx: number;
   /** ความสูงที่ต้องกันไว้ท้ายหน้าสุดท้าย (เช่น ช่องลงนาม) */
   trailingHeight: number;
+  /**
+   * ความสูงของส่วนสรุปข้อมูล (แสดงเฉพาะหน้าแรก)
+   * บวกไปที่แถวแรกตอนคำนวณแบ่งหน้า เพื่อไม่ให้หน้าแรกล้นพื้นที่พิมพ์
+   */
+  summaryHeight: number;
 };
 
 function sameHeights(a: number[], b: number[]): boolean {
@@ -95,6 +102,15 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
   const months = useMemo(() => monthOptions(rows), [rows]);
   const reportRows = useMemo(() => applyFilters(rows, filters), [rows, filters]);
 
+  /** สถิติสำหรับส่วนสรุปข้อมูล — คำนวณจาก "รายการที่แสดงในรายงาน" (ข้อมูลจริงทั้งหมด) */
+  const reportStats = useMemo(() => computeStatistics(reportRows), [reportRows]);
+
+  /** จำนวนหน่วยงานผู้ส่งที่ไม่ซ้ำกัน (ไม่นับช่องว่าง) */
+  const distinctSenders = useMemo(
+    () => new Set(reportRows.map((row) => row.from.trim()).filter(Boolean)).size,
+    [reportRows],
+  );
+
   const rangeLabel = useMemo(() => {
     if (filters.dateFrom && filters.dateTo) {
       return `ระหว่างวันที่ ${formatThaiDateInput(filters.dateFrom)} ถึง ${formatThaiDateInput(filters.dateTo)}`;
@@ -114,6 +130,7 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
   // --- การแบ่งหน้าจากความสูงจริงของเนื้อหา (ไม่ใช้จำนวนแถวตายตัว) ---
   const measureRef = useRef<HTMLDivElement>(null);
   const measureHeaderRef = useRef<HTMLDivElement>(null);
+  const measureSummaryRef = useRef<HTMLDivElement>(null);
   const measureTableRef = useRef<HTMLTableElement>(null);
   const measureFooterRef = useRef<HTMLDivElement>(null);
   const measureSignRef = useRef<HTMLDivElement>(null);
@@ -164,6 +181,12 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
         header.getBoundingClientRect().height + (Number.parseFloat(headerStyle.marginBottom) || 0);
       const tableHeadHeight = table.tHead ? table.tHead.getBoundingClientRect().height : 0;
       const footerHeight = footer ? footer.getBoundingClientRect().height : 0;
+      // ส่วนสรุปข้อมูล (หน้าแรก) — รวม margin-bottom เช่นเดียวกับหัวรายงาน
+      const summaryNode = measureSummaryRef.current;
+      const summaryHeight = summaryNode
+        ? summaryNode.getBoundingClientRect().height +
+          (Number.parseFloat(window.getComputedStyle(summaryNode).marginBottom) || 0)
+        : 0;
       // ต้องรวม margin-top ของช่องลงนามด้วย (12 มม.) ไม่ใช่แค่ความสูงกล่อง
       const signNode = measureSignRef.current;
       const trailingHeight = signNode
@@ -188,20 +211,30 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
           previous.signature === rowsSignature &&
           Math.abs(previous.capacityPx - capacityPx) <= 0.5 &&
           Math.abs(previous.trailingHeight - trailingHeight) <= 0.5 &&
+          Math.abs(previous.summaryHeight - summaryHeight) <= 0.5 &&
           sameHeights(previous.rowHeights, rowHeights)
         ) {
           return previous;
         }
-        return { signature: rowsSignature, rowHeights, capacityPx, trailingHeight };
+        return { signature: rowsSignature, rowHeights, capacityPx, trailingHeight, summaryHeight };
       });
     };
 
     measure();
 
-    // ฟอนต์ Sarabun โหลดแบบ async — วัดซ้ำเมื่อโหลดเสร็จเพื่อไม่ให้ความสูงคลาดเคลื่อน
+    /*
+     * ฟอนต์เอกสาร TH Sarabun New โหลดแบบ async — วัดซ้ำเมื่อฟอนต์พร้อม
+     * เพื่อไม่ให้ความสูงคลาดเคลื่อนจากบรรทัดแรกที่ยังใช้ฟอนต์สำรอง
+     */
     const fonts = (document as Document & { fonts?: FontFaceSet }).fonts;
     if (fonts?.ready) {
-      void fonts.ready.then(() => measure()).catch(() => undefined);
+      void Promise.all([
+        fonts.load('400 16px "TH Sarabun New"').catch(() => undefined),
+        fonts.load('700 16px "TH Sarabun New"').catch(() => undefined),
+        fonts.ready,
+      ])
+        .then(() => measure())
+        .catch(() => undefined);
     }
 
     window.addEventListener('resize', measure);
@@ -216,7 +249,15 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
 
   const slices = useMemo(() => {
     if (!activeLayout || reportRows.length === 0) return [];
-    return paginateRowsByHeight(activeLayout.rowHeights, activeLayout.capacityPx, {
+    /*
+     * หน้าแรกมีส่วนสรุปข้อมูลอยู่เหนือตาราง → บวกความสูงส่วนสรุปกับ "แถวแรก"
+     * ก่อนส่งเข้าระบบแบ่งหน้า แถวแรกของหน้าแรกจึงถูกคิดพื้นที่รวมส่วนสรุป
+     * (แถวที่เหลือในหน้าอื่นใช้พื้นที่เต็ม capacity ตามปกติ)
+     */
+    const heights = activeLayout.rowHeights;
+    const adjusted =
+      heights.length > 0 ? [heights[0] + activeLayout.summaryHeight, ...heights.slice(1)] : heights;
+    return paginateRowsByHeight(adjusted, activeLayout.capacityPx, {
       trailingHeight: activeLayout.trailingHeight,
     });
   }, [activeLayout, reportRows]);
@@ -235,7 +276,10 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
     return slices.map((slice, index) =>
       computeJustifiedExtraPadPx({
         capacityPx: activeLayout.capacityPx,
-        usedPx: sumHeights(activeLayout.rowHeights, slice.start, slice.end),
+        // หน้าแรกต้องหักส่วนสรุปข้อมูลออกด้วย (ตรงกับที่บวกไปตอนแบ่งหน้า)
+        usedPx:
+          sumHeights(activeLayout.rowHeights, slice.start, slice.end) +
+          (index === 0 ? activeLayout.summaryHeight : 0),
         rowCount: slice.end - slice.start,
         isLastPage: index === slices.length - 1,
       }),
@@ -289,6 +333,27 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
   const clearReportFilters = () => {
     setFilters({ ...DEFAULT_FILTERS, sortKey: 'receiveNo', sortDirection: 'asc' });
   };
+
+  /**
+   * ส่วนสรุปข้อมูล — ตัวเลขทั้งหมดมาจากข้อมูลในรายงานจริง (ไม่มีเลขสมมติ)
+   * innerRef ใช้ตอนวัดความสูงในพื้นที่วัด เพื่อคิดพื้นที่หน้าแรกตอนแบ่งหน้า
+   */
+  const renderSummary = (innerRef?: Ref<HTMLDivElement>) => (
+    <div className="report-summary" ref={innerRef}>
+      <div className="summary-stat">
+        <span className="summary-value">{reportRows.length.toLocaleString('th-TH')}</span>
+        <span className="summary-label">รายการทั้งหมด</span>
+      </div>
+      <div className="summary-stat">
+        <span className="summary-value">{distinctSenders.toLocaleString('th-TH')}</span>
+        <span className="summary-label">หน่วยงานผู้ส่ง</span>
+      </div>
+      <div className="summary-stat">
+        <span className="summary-value">{reportStats.byMonth.length.toLocaleString('th-TH')}</span>
+        <span className="summary-label">เดือนที่มีข้อมูล</span>
+      </div>
+    </div>
+  );
 
   return (
     <div className="stack">
@@ -509,8 +574,8 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
         <span className="text-muted report-toolbar-hint">
           เลือก “ขนาดเอกสาร” ด้านบนเพื่อย่อ/ขยายเนื้อหาและจำนวนรายการต่อหน้า (มีผลทั้งหน้าจอและ PDF)
           จากนั้นพิมพ์ด้วยกระดาษ A4 แนวตั้ง มาตราส่วนของเบราว์เซอร์ 100% ระยะขอบ 10–12 มม.
-          (อย่าเลือก “Fit to page” เพราะจะทำให้จำนวนหน้าไม่ตรง — รายงานเป็นขาวดำล้วน
-          จึงพิมพ์ได้ถูกต้องแม้ปิด “Background graphics”)
+          (อย่าเลือก “Fit to page” และให้เปิด “พิมพ์พื้นหลัง / Background graphics”
+          เพื่อให้หัวตารางสีกรมท่าและแถบสรุปข้อมูลแสดงผลครบถ้วน)
         </span>
       </div>
 
@@ -544,11 +609,9 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
           {orgName ? <div className="report-org">{orgName}</div> : null}
           <h1 className="report-title">{reportTitle || 'ทะเบียนหนังสือรับ'}</h1>
           <div className="report-range">{rangeLabel}</div>
-          <div className="report-meta">
-            <span>จำนวนรายการในรายงาน: {reportRows.length.toLocaleString('th-TH')} รายการ</span>
-            <span>หน้า 88 จาก 88</span>
-          </div>
         </div>
+
+        {renderSummary(measureSummaryRef)}
 
         <table className="report-table" ref={measureTableRef}>
           <colgroup>
@@ -601,8 +664,9 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
           </div>
         ) : null}
 
-        <div className="report-footer-note" ref={measureFooterRef}>
-          พิมพ์จากระบบทะเบียนหนังสือ เมื่อ {printedAtLabel}
+        <div className="report-footer-note page-foot" ref={measureFooterRef}>
+          <span>พิมพ์จากระบบทะเบียนหนังสือ เมื่อ {printedAtLabel}</span>
+          <span className="report-page-no">หน้า 88 จาก 88</span>
         </div>
       </div>
 
@@ -613,13 +677,9 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
               {orgName ? <div className="report-org">{orgName}</div> : null}
               <h1 className="report-title">{reportTitle || 'ทะเบียนหนังสือรับ'}</h1>
               <div className="report-range">{rangeLabel}</div>
-              <div className="report-meta">
-                <span>จำนวนรายการในรายงาน: {reportRows.length.toLocaleString('th-TH')} รายการ</span>
-                <span>
-                  หน้า {pageIndex + 1} จาก {pages.length}
-                </span>
-              </div>
             </header>
+
+            {pageIndex === 0 ? renderSummary() : null}
 
             <table
               className="report-table"
@@ -675,8 +735,11 @@ export function ReportStep({ rows, sourceFileLabel, onGoToRegister, onGoToUpload
               </div>
             ) : null}
 
-            <div className="report-footer-note">
-              พิมพ์จากระบบทะเบียนหนังสือ เมื่อ {printedAtLabel}
+            <div className="report-footer-note page-foot">
+              <span>พิมพ์จากระบบทะเบียนหนังสือ เมื่อ {printedAtLabel}</span>
+              <span className="report-page-no">
+                หน้า {pageIndex + 1} จาก {pages.length}
+              </span>
             </div>
           </div>
         ))}

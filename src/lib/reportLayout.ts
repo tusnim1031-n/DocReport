@@ -25,8 +25,9 @@ export const CONTENT_HEIGHT_MM = A4_HEIGHT_MM - PRINT_MARGIN_Y_MM * 2; // 277
  * ความกว้างคอลัมน์ "ลำดับ" (มม.)
  * รวมกับความกว้าง 7 คอลัมน์ใน REPORT_COLUMNS ต้องเท่ากับ CONTENT_WIDTH_MM พอดี
  * เพื่อไม่ให้เบราว์เซอร์ย่อ/ขยายคอลัมน์จนแนวไม่ตรงกัน
+ * (11 มม. = พอสำหรับหัวตาราง "ลำดับ" ที่ 16pt และเลขลำดับ 4 หลักที่ 12pt)
  */
-export const REPORT_INDEX_WIDTH_MM = 10;
+export const REPORT_INDEX_WIDTH_MM = 11;
 
 /**
  * 1 CSS px = 1/96 นิ้ว, 1 นิ้ว = 25.4 มม.
