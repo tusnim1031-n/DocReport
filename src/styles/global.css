@@ -2187,44 +2187,6 @@ textarea {
 }
 
 /*
- * ส่วนสรุปข้อมูล — แสดงเฉพาะหน้าแรก ตัวเลขทั้งหมดมาจากข้อมูลรายงานจริง
- * ความสูงของบล็อกนี้ (รวม margin-bottom) ถูกบวกไปที่แถวแรกตอนคำนวณแบ่งหน้า
- * เพื่อไม่ให้หน้าแรกล้นพื้นที่พิมพ์ (ดู ReportStep: measureSummaryRef)
- */
-.report-summary {
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  gap: calc(8mm * var(--report-scale, 1));
-  background: var(--rep-light);
-  border: 1px solid var(--rep-line);
-  padding: calc(3mm * var(--report-scale, 1)) calc(4mm * var(--report-scale, 1));
-  margin-bottom: calc(4mm * var(--report-scale, 1));
-  break-inside: avoid;
-}
-
-.report-summary .summary-stat {
-  text-align: center;
-}
-
-.report-summary .summary-value {
-  display: block;
-  font-size: calc(24pt * var(--report-scale, 1));
-  font-weight: 700;
-  color: var(--rep-navy);
-  line-height: 1.15;
-  font-variant-numeric: tabular-nums;
-}
-
-.report-summary .summary-label {
-  display: block;
-  font-size: calc(14pt * var(--report-scale, 1));
-  color: var(--rep-text);
-  line-height: 1.3;
-  margin-top: calc(1px * var(--report-scale, 1));
-}
-
-/*
  * ตารางรายงาน — ธีมราชการสมัยใหม่:
  * หัวตารางพื้นกรมท่า ตัวอักษรขาว Bold 16pt / เนื้อหา Regular 12pt
  * แถวสลับสีขาว–เทาอ่อน เส้นบางสีฟ้าเทา (การพิมพ์ต้องเปิด Background graphics)
@@ -2507,14 +2469,8 @@ textarea {
    * หัวตาราง/เนื้อหา/แถบสลับสีใช้สไตล์จากข้างบนเลย (คูณ --report-scale
    * และพื้นกรมท่า/ตัวขาว) — ห้ามประกาศ background: transparent ซ้ำ
    * การพิมพ์จากเบราว์เซอร์ต้องเปิด "Background graphics"
-   * เพื่อให้หัวตารางสีกรมท่าและแถบสรุปแสดงครบ (printToPDF ใช้ printBackground: true)
+   * เพื่อให้หัวตารางสีกรมท่าแสดงครบ (printToPDF ใช้ printBackground: true)
    */
-
-  /* กันส่วนสรุปข้อมูลถูกตัดข้ามหน้า */
-  .report-summary {
-    break-inside: avoid;
-    page-break-inside: avoid;
-  }
 
   /* กันการตัดแถวกลางคัน (แต่ละแถวถูกวัดความสูงและจัดลงหน้าให้พอดีแล้ว) */
   .report-table tr {
